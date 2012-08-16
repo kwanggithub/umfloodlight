@@ -49,7 +49,7 @@ public class BgpRoute implements IFloodlightModule, BgpRouteService {
 
 	@Override
 	public void startUp(FloodlightModuleContext context) {
-		// TODO Auto-generated method stub
+		restApi.addRestletRoutable(new BgpRouteWebRoutable());
 
 	}
 
