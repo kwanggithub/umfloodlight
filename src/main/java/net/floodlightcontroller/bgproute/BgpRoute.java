@@ -12,7 +12,12 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.restserver.IRestApiService;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class BgpRoute implements IFloodlightModule, BgpRouteService {
+	
+	protected static Logger log = LoggerFactory.getLogger(BgpRoute.class);
 
 	protected IFloodlightProviderService floodlightProvider;
 	
@@ -50,7 +55,6 @@ public class BgpRoute implements IFloodlightModule, BgpRouteService {
 	@Override
 	public void startUp(FloodlightModuleContext context) {
 		restApi.addRestletRoutable(new BgpRouteWebRoutable());
-
 	}
 
 	@Override
