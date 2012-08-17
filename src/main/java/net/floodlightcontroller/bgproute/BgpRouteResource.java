@@ -12,11 +12,19 @@ public class BgpRouteResource extends ServerResource {
 	}
 	@Post
 	public String store(String fmJson) {
-		return "[POST]";
+		String routerId = (String) getRequestAttributes().get("routerid");
+		String prefix = (String) getRequestAttributes().get("prefix");
+		String mask = (String) getRequestAttributes().get("mask");
+		String nextHop = (String) getRequestAttributes().get("nexthop");
+		return "[POST:" + routerId + ":" + prefix + ":" + mask + ":" + nextHop + "]";
 	}
 	
 	@Delete
 	public String delete(String fmJson) {
-		return "[DELETE]";
+		String routerId = (String) getRequestAttributes().get("routerid");
+		String prefix = (String) getRequestAttributes().get("prefix");
+		String mask = (String) getRequestAttributes().get("mask");
+		String nextHop = (String) getRequestAttributes().get("nexthop");
+		return "[DELETE:" + routerId + ":" + prefix + ":" + mask + ":" + nextHop + "]";
 	}
 }
