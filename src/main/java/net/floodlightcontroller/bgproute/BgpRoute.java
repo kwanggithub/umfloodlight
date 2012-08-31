@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import java.net.UnknownHostException;
+
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
@@ -45,11 +47,14 @@ public class BgpRoute implements IFloodlightModule, BgpRouteService {
 		return l;
 	}
 
+	protected Ptree rib;
+	
 	@Override
 	public void init(FloodlightModuleContext context)
 			throws FloodlightModuleException {
 		floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
 		restApi = context.getServiceImpl(IRestApiService.class);
+		rib = new Ptree();
 	}
 
 	@Override
