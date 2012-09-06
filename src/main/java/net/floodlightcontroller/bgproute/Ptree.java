@@ -101,6 +101,33 @@ public class Ptree {
 		return null;
 	}
 	
+	public PtreeNode match(byte [] key, int key_bits) {
+		if (key_bits > maxKeyBits) {
+			return null;
+		}
+		
+		PtreeNode node = top;
+		PtreeNode matched = null;
+		
+		while (node != null
+				&& node.keyBits <= key_bits
+				&& key_match(node.key, node.keyBits, key, key_bits) == true) {
+			matched = node;
+			
+			if (bit_check(key, node.keyBits) == true) {
+				node = node.right;
+			} else {
+				node = node.left;
+			}
+		}
+		
+		if (matched != null) {
+			return addReference(matched);
+		}
+		
+		return null;
+	}
+	
 	public PtreeNode begin() {
 		if (top == null) {
 			return null;
