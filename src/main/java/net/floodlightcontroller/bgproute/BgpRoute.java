@@ -47,14 +47,50 @@ public class BgpRoute implements IFloodlightModule, BgpRouteService {
 		return l;
 	}
 
-	protected Ptree rib;
+	protected Ptree ptree;
 	
 	@Override
 	public void init(FloodlightModuleContext context)
 			throws FloodlightModuleException {
 		floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
 		restApi = context.getServiceImpl(IRestApiService.class);
-		rib = new Ptree();
+
+		// Test.
+		if (false) {
+			ptree = new Ptree(32);
+			System.out.println("Here it is");
+			Prefix p = new Prefix("128.0.0.0", 8);
+			Prefix q = new Prefix("8.0.0.0", 8);
+		
+			ptree.acquire(p.getAddress(), p.masklen);
+			ptree.acquire(q.getAddress(), q.masklen);
+		
+			System.out.println("Traverse start");
+			for (PtreeNode node = ptree.begin(); node != null; node = ptree.next(node)) {
+				Prefix p_result = new Prefix(node.key, node.keyBits);
+			}
+		
+			PtreeNode n = ptree.lookup(p.getAddress(), p.masklen);
+			if (n != null) {
+				ptree.delReference(n);
+				ptree.delReference(n);
+			}
+			System.out.println("Traverse start");
+			for (PtreeNode node = ptree.begin(); node != null; node = ptree.next(node)) {
+				Prefix p_result = new Prefix(node.key, node.keyBits);
+			}
+			
+			n = ptree.lookup(q.getAddress(), q.masklen);
+			if (n != null) {
+				System.out.println("q refCount: " + n.refCount);
+				ptree.delReference(n);
+				ptree.delReference(n);
+			}
+			System.out.println("Traverse start");
+			for (PtreeNode node = ptree.begin(); node != null; node = ptree.next(node)) {
+				Prefix p_result = new Prefix(node.key, node.keyBits);
+			}
+		}
 	}
 
 	@Override
