@@ -9,8 +9,15 @@ public class PtreeNode {
 	public int keyBits;
 	
 	public int refCount;
+	
+	public Rib rib;
 
 	PtreeNode(byte [] key, int key_bits, int max_key_octet) {
+		parent = null;
+		left = null;
+		right = null;
+		refCount = 0;
+		rib = null;
 		this.key = new byte[max_key_octet];
 		this.keyBits = key_bits;
 		
