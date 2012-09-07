@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
@@ -13,12 +14,15 @@ import org.openflow.protocol.OFType;
 import org.openflow.protocol.action.OFAction;
 import org.openflow.protocol.action.OFActionDataLayerDestination;
 import org.openflow.protocol.action.OFActionOutput;
+import org.openflow.util.Unsigned;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFSwitch;
+import net.floodlightcontroller.core.module.FloodlightModuleContext;
+import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.devicemanager.IDevice;
 import net.floodlightcontroller.devicemanager.IDeviceService;
@@ -37,34 +41,30 @@ public class InterDomainForwarding extends Forwarding implements
     protected static Logger log = LoggerFactory
             .getLogger(InterDomainForwarding.class);
 
-    // KC constant for L3 handling
+    // proxyArp MAC address - can replace with other values in future
     public final String GW_PROXY_ARP_MACADDRESS = "12:34:56:78:90:12";
 
+    protected static Integer localSubnet;
+    
+    protected static Integer localSubnetMaskBits;
+    
     // doProxyArp called when destination is external to SDN network
-
     protected void doProxyArp(IOFSwitch sw, OFPacketIn pi,
             FloodlightContext cntx) {
+        log.debug("InterDomainForwarding: doProxyArp");
+
         Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
                 IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
 
-        // below KC temporary implementation - will move to new L3
-        // forwarding
-        // module later.
-
-        // If arping for default gateway(s), isExternal==true
-        // respond with proxy arp; otherwise, flood for now
-
-        // retrieve arp to determine target IP address
+        // retrieve original arp to determine host configured gw IP address
         ARP arpRequest = (ARP) eth.getPayload();
 
-        // if indeed target is gw, proxy arp with special mac address
-        log.debug("KC L3 forwarding: see arp, IsExternal");
-
-        // generate ARP reply
-        byte[] proxyArp = MACAddress.valueOf(GW_PROXY_ARP_MACADDRESS).toBytes();
+        // generate proxy ARP reply
+        byte[] proxyArpReply = MACAddress.valueOf(GW_PROXY_ARP_MACADDRESS)
+                .toBytes();
 
         IPacket arpReply = new Ethernet()
-                .setSourceMACAddress(proxyArp)
+                .setSourceMACAddress(proxyArpReply)
                 .setDestinationMACAddress(eth.getSourceMACAddress())
                 .setEtherType(Ethernet.TYPE_ARP)
                 .setVlanID(eth.getVlanID())
@@ -76,7 +76,7 @@ public class InterDomainForwarding extends Forwarding implements
                                 .setHardwareAddressLength((byte) 6)
                                 .setProtocolAddressLength((byte) 4)
                                 .setOpCode(ARP.OP_REPLY)
-                                .setSenderHardwareAddress(proxyArp)
+                                .setSenderHardwareAddress(proxyArpReply)
                                 .setSenderProtocolAddress(
                                         arpRequest.getTargetProtocolAddress())
                                 .setTargetHardwareAddress(
@@ -84,40 +84,38 @@ public class InterDomainForwarding extends Forwarding implements
                                 .setTargetProtocolAddress(
                                         arpRequest.getSenderProtocolAddress()));
 
-        // TODO: doDropFlow (as in VNF) to discard ARP request in
-        // switch buffer
+        // TODO: generate empty flowmod to drop switch buffered arp request (see
+        // VirtualNetworkingFilter example
 
         // push ARP out
         pushPacket(arpReply, sw, OFPacketOut.BUFFER_ID_NONE, (short) 4,
                 pi.getInPort(), cntx);
-        log.debug("proxy ARP reply pushed");
-        // this should cause a unicast packet's packetIn to come to
-        // controller
+        log.debug("proxy ARP reply (unicast) pushed");
 
         return;
     }
-    
-    protected FloodlightContext prepInterDomainForwarding(FloodlightContext cntx){
-        
-        log.debug("KC L3 forwarding: got the real payload");
 
-        // query BgpRoute for the right gateway IP
-        // To fix below with real value
-        String gwIPAddressStr = "10.0.0.3";
+    protected FloodlightContext prepInterDomainForwarding(FloodlightContext cntx) {
+
+        log.debug("InterDomainForwarding: forward packet");
+
+        // Here query BgpRoute for the right gateway IP
+        // TODO: replace hard coded constant to BgpRoute query call
+        String gwIPAddressStr = "192.168.10.1";
         Integer gwIPAddress = IPv4.toIPv4Address(gwIPAddressStr);
 
-        // Get gateway Device handler
+        // Below searches for gateway device handler using IDeviceService
 
-        // retrieve all known devices from IDeviceService for search
+        // retrieve all known devices
         Collection<? extends IDevice> allDevices = deviceManager
                 .getAllDevices();
 
-        // search through all device list to identify src and dst device
-        // with their IP addresses
+        // look for device with chosen gateway's IP address
         IDevice gwDevice = null;
-
+        
         for (IDevice d : allDevices) {
             for (int i = 0; i < d.getIPv4Addresses().length; i++) {
+                log.debug("InterdomainForwarding find device: "+IPv4.fromIPv4Address(gwIPAddress)+" -- "+IPv4.fromIPv4Address(d.getIPv4Addresses()[i]));
                 if (gwIPAddress.equals(d.getIPv4Addresses()[i])) {
                     gwDevice = d;
                     break;
@@ -125,20 +123,19 @@ public class InterDomainForwarding extends Forwarding implements
             }
         }
 
+        // gw device found
         if (gwDevice != null) {
-            // overwrite dest device found by deviceManager/PktIn with
-            // gw device
-            IDeviceService.fcStore.put(cntx,
-                    IDeviceService.CONTEXT_DST_DEVICE, gwDevice);
-
+            // overwrite dst device info in cntx
+            IDeviceService.fcStore.put(cntx, IDeviceService.CONTEXT_DST_DEVICE,
+                    gwDevice);
+            log.debug("KC L3 forwarding: assigned gw found");
         } else {
             // if no known devices match the BgpRoute suggested gateway
             // IP, this is an error in BgpRoute to be handled
-
             log.debug("KC L3 forwarding: bad gw assigned");
         }
-        
-        return cntx;          
+
+        return cntx;
     }
 
     /**
@@ -148,12 +145,14 @@ public class InterDomainForwarding extends Forwarding implements
      *            Route to push
      * @param match
      *            OpenFlow fields to match on
-     * @param srcSwPort
-     *            Source switch port for the first hop
-     * @param dstSwPort
-     *            Destination switch port for final hop
+     * @param wildcard_hints
+     *            wildcard hints
      * @param bufferId
      *            BufferId of the original PacketIn
+     * @param packetIn
+     *            original PacketIn
+     * @param pinSwitch
+     *            switch that produced PacketIn
      * @param cookie
      *            The cookie to set in each flow_mod
      * @param cntx
@@ -167,15 +166,16 @@ public class InterDomainForwarding extends Forwarding implements
      * @param flowModCommand
      *            flow mod. command to use, e.g. OFFlowMod.OFPFC_ADD,
      *            OFFlowMod.OFPFC_MODIFY etc.
-     * @return srcSwitchIincluded True if the source switch is included in this
-     *         route
      */
+    @Override
     public boolean pushRoute(Route route, OFMatch match,
             Integer wildcard_hints, int bufferId, OFPacketIn pi,
             long pinSwitch, long cookie, FloodlightContext cntx,
             boolean reqeustFlowRemovedNotifn, boolean doFlush,
             short flowModCommand) {
 
+        log.debug("KC pushing route");
+        
         boolean srcSwitchIncluded = false;
         OFFlowMod fm = (OFFlowMod) floodlightProvider.getOFMessageFactory()
                 .getMessage(OFType.FLOW_MOD);
@@ -232,29 +232,35 @@ public class InterDomainForwarding extends Forwarding implements
             fm.getMatch().setInputPort(inPort);
             ((OFActionOutput) fm.getActions().get(0)).setPort(outPort);
 
-            // KC L3 handling
+            // InterDomainForwarding specific handling starts here
+            // retrieve cntx to set rewrite+forward action for 1st switch and
+            // forward action for all other switches
             IDevice dstDevice = IDeviceService.fcStore.get(cntx,
                     IDeviceService.CONTEXT_DST_DEVICE);
             List<OFAction> newActions = fm.getActions();
 
             if (indx == 1) {
-            
                 if (MACAddress.valueOf(fm.getMatch().getDataLayerDestination())
                         .equals(MACAddress.valueOf(GW_PROXY_ARP_MACADDRESS))) {
-                    
-
+                    // create rewrite action with chosen gw MAC address
                     OFAction rewriteAction = new OFActionDataLayerDestination(
                             MACAddress.valueOf(dstDevice.getMACAddress())
                                     .toBytes());
 
+                    // add action to current output action
                     newActions.add(0, rewriteAction);
                     fm.setActions(newActions);
                     fm.setLengthU(fm.getLengthU() + rewriteAction.getLengthU());
                 }
             } else {
-                fm.getMatch().setDataLayerDestination(MACAddress.valueOf(dstDevice.getMACAddress())
-                                    .toBytes());
+                // update match for output action
+                fm.getMatch()
+                        .setDataLayerDestination(
+                                MACAddress.valueOf(dstDevice.getMACAddress())
+                                        .toBytes());
             }
+            // InterDomainForwarding specific handling concludes here
+           
 
             try {
                 counterStore.updatePktOutFMCounterStore(sw, fm);
@@ -287,8 +293,8 @@ public class InterDomainForwarding extends Forwarding implements
         }
 
         return srcSwitchIncluded;
-    }   
-    
+    }
+
     @Override
     public Command processPacketInMessage(IOFSwitch sw, OFPacketIn pi,
             IRoutingDecision decision, FloodlightContext cntx) {
@@ -296,17 +302,42 @@ public class InterDomainForwarding extends Forwarding implements
                 IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
 
         if (eth.isBroadcast() || eth.isMulticast()) {
+
+            // InterDomainForwarding - check ARP target gateway
             if (eth.getEtherType() == Ethernet.TYPE_ARP) {
                 // retrieve arp to determine target IP address
                 ARP arpRequest = (ARP) eth.getPayload();
 
+                // If arping for default gateway(s) ==> isExternal==true
+                // respond with proxy arp; otherwise, flood for now
+
                 // check gw IP address, if false, bypass for normal handling
-                boolean isExternal = (arpRequest.getTargetProtocolAddress()[0] != 10);
+                // TODO: add restAPI for user to configure available gateways
+                // or get from bgpRoute
+                String debugStr = "KC arp address: " + (arpRequest.getTargetProtocolAddress()[0] & 0xff) + "." +
+                        (arpRequest.getTargetProtocolAddress()[1] & 0xff) + "."+ (arpRequest.getTargetProtocolAddress()[2] & 0xff);
+                log.debug(debugStr);
+                
+                byte[] targetProtocolAddress = arpRequest.getTargetProtocolAddress();
+                byte[] targetSubnetAddress=targetProtocolAddress.clone();
+                
+                if (localSubnetMaskBits >= 24)
+                    targetSubnetAddress[3] = (byte) (targetProtocolAddress[3] >> (32-localSubnetMaskBits) << (32-localSubnetMaskBits));
+                else if (localSubnetMaskBits >= 16)
+                    targetSubnetAddress[2] = (byte) (targetProtocolAddress[2] >> (24-localSubnetMaskBits) << (24-localSubnetMaskBits));
+                else if (localSubnetMaskBits >= 8)
+                    targetSubnetAddress[1] = (byte) (targetProtocolAddress[1] >> (16-localSubnetMaskBits) << (16-localSubnetMaskBits));
+                else if (localSubnetMaskBits >= 0)
+                    targetSubnetAddress[0] = (byte) (targetProtocolAddress[0] >> (8-localSubnetMaskBits) << (8-localSubnetMaskBits));
+                
+                log.debug("target subnet" + (targetSubnetAddress[0]&0xff)+ "." + (targetSubnetAddress[1]&0xff) + "." + (targetSubnetAddress[2]&0xff) + "." + (targetSubnetAddress[3]&0xff));
+                
+                boolean isExternal = IPv4.toIPv4Address(targetSubnetAddress)!=localSubnet;
 
                 if (isExternal) {
                     doProxyArp(sw, pi, cntx);
-                 
-                    //arp pushed already, bypass doFlood()
+
+                    // arp pushed already, complete forwarding
                     return Command.CONTINUE;
                 }
             }
@@ -314,13 +345,15 @@ public class InterDomainForwarding extends Forwarding implements
             // For now we treat multicast as broadcast
             doFlood(sw, pi, cntx);
         } else {
-
-            MACAddress proxyArp = MACAddress.valueOf(GW_PROXY_ARP_MACADDRESS);
+            MACAddress proxyArpAddress = MACAddress
+                    .valueOf(GW_PROXY_ARP_MACADDRESS);
             MACAddress dstMac = MACAddress.valueOf(eth
                     .getDestinationMACAddress());
 
-            if (proxyArp.equals(dstMac)) {
-                cntx=prepInterDomainForwarding(cntx);
+            log.debug("dst is "+dstMac+" gw is "+proxyArpAddress);
+            
+            if (proxyArpAddress.equals(dstMac)) {
+                cntx = prepInterDomainForwarding(cntx);
             }
 
             doForwardFlow(sw, pi, cntx, false);
@@ -329,38 +362,18 @@ public class InterDomainForwarding extends Forwarding implements
         return Command.CONTINUE;
     }
 
-    // @Override
-    // public Collection<Class<? extends IFloodlightService>>
-    // getModuleServices() {
-    // // TODO Auto-generated method stub
-    // return null;
-    // }
-    //
-    // @Override
-    // public Map<Class<? extends IFloodlightService>, IFloodlightService>
-    // getServiceImpls() {
-    // // TODO Auto-generated method stub
-    // return null;
-    // }
-    //
-    // @Override
-    // public Collection<Class<? extends IFloodlightService>>
-    // getModuleDependencies() {
-    // // TODO Auto-generated method stub
-    // return null;
-    // }
-    //
-    // @Override
-    // public void init(FloodlightModuleContext context)
-    // throws FloodlightModuleException {
-    // // TODO Auto-generated method stub
-    //
-    // }
-    //
-    // @Override
-    // public void startUp(FloodlightModuleContext context) {
-    // // TODO Auto-generated method stub
-    //
-    // }
-
+    @Override
+    public void init(FloodlightModuleContext context) throws FloodlightModuleException {
+        // read our config options
+        Map<String, String> configOptions = context.getConfigParams(this);
+        
+        String subnet = (String) configOptions.get("localSubnet");
+        if (subnet != null) {
+            String[] fields = subnet.split("[/]+");           
+            localSubnet = IPv4.toIPv4Address(fields[0]);
+            localSubnetMaskBits = Integer.parseInt(fields[1]);
+        }
+        log.debug("local subnet set to {}/{}", IPv4.fromIPv4Address(localSubnet), localSubnetMaskBits);
+        super.init(context);
+    }    
 }
