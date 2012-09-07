@@ -68,6 +68,24 @@ public class BgpRoute implements IFloodlightModule, BgpRouteService {
 		return ptree;
 	}
 	
+	// Return nexthop address as byte array.
+	public static byte[] lookupRib(byte[] dest) {
+		if (ptree == null) {
+			return null;
+		}
+		
+		PtreeNode node = ptree.match(dest, 32);
+		if (node == null) {
+			return null;
+		}
+		if (node.rib == null) {
+			return null;
+		}
+		ptree.delReference(node);
+		
+		return node.rib.nextHop.getAddress();
+	}
+	
 	private void test() {
 		System.out.println("Here it is");
 		Prefix p = new Prefix("128.0.0.0", 8);
