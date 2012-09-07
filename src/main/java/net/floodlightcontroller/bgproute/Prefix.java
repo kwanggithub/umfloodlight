@@ -12,6 +12,7 @@ public class Prefix {
 			address = InetAddress.getByAddress(addr);
 		} catch (UnknownHostException e) {
 			System.out.println("InetAddress exception");
+			return;
 		}
 		this.masklen = masklen;
 		System.out.println(address.toString() + "/" + masklen);
@@ -20,9 +21,10 @@ public class Prefix {
 	Prefix(String str, int masklen) {
 		try {
 			address = InetAddress.getByName(str);
-			System.out.println(address.toString());
+			//System.out.println(address.toString());
 		} catch (UnknownHostException e) {
 			System.out.println("InetAddress exception");
+			return;
 		}
 		this.masklen = masklen;
 	}

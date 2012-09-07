@@ -6,28 +6,55 @@ import org.restlet.resource.Delete;
 import org.restlet.resource.ServerResource;
 
 public class BgpRouteResource extends ServerResource {
-	@Get("json")
+	private String addrToString(byte [] addr) {
+		String str = "";
+		
+		for (int i = 0; i < 4; i++) {
+			int val = (addr[i] & 0xff);
+			str += val;
+			if (i != 3)
+				str += ".";
+		}
+		
+		return str;
+	}
+	
+	@Get
 	public String get(String fmJson) {
 		String dest = (String) getRequestAttributes().get("dest");
+		String output = "";
 		
 		if (dest != null) {
 			Prefix p = new Prefix(dest, 32);
+			if (p == null) {
+				return "[GET]: dest address format is wrong";
+			}
 			byte [] nexthop = BgpRoute.lookupRib(p.getAddress());
 			if (nexthop != null) {
-				System.out.println("Nexthop found:");
-				Prefix n = new Prefix(nexthop, 32);
+				output += "{\"result\": \"" + addrToString(nexthop) + "\"}\n";
 			} else {
-				System.out.println("Nexthop does not exist");
+				output += "{\"result\": \"Nexthop does not exist\"}\n";
 			}
 		} else {
 			Ptree ptree = BgpRoute.getPtree();
-		
+			output += "{\n  \"rib\": [\n";
+			boolean printed = false;
 			for (PtreeNode node = ptree.begin(); node != null; node = ptree.next(node)) {
-				Prefix p_result = new Prefix(node.key, node.keyBits);
+				if (node.rib == null) {
+					continue;
+				}
+				if (printed == true) {
+					output += ",\n";
+				}
+				output += "    {\"prefix\": \"" + addrToString(node.key) + "/" + node.keyBits +"\", ";
+				output += "\"nexthop\": \"" + addrToString(node.rib.nextHop.getAddress()) +"\"}";
+				printed = true;
 			}
+			//output += "{\"router_id\": \"" + addrToString(node.rib.routerId.getAddress()) +"\"}\n";
+			output += "\n  ]\n}\n";
 		}
 		
-		return "[GET]";
+		return output;
 	}
 	@Post
 	public String store(String fmJson) {
@@ -48,7 +75,7 @@ public class BgpRouteResource extends ServerResource {
 		}
 		node.rib = rib;
 
-		return "[POST:" + router_id + ":" + prefix + ":" + mask + ":" + nexthop + "]";
+		return "[POST:" + router_id + ":" + prefix + ":" + mask + ":" + nexthop + "]\n";
 	}
 	
 	@Delete
@@ -68,6 +95,6 @@ public class BgpRouteResource extends ServerResource {
 			ptree.delReference(node);
 		}
 		
-		return "[DELETE:" + routerId + ":" + prefix + ":" + mask + ":" + nextHop + "]";
+		return "[DELETE:" + routerId + ":" + prefix + ":" + mask + ":" + nextHop + "]\n";
 	}
 }
