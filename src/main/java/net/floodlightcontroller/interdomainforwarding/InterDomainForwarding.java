@@ -97,7 +97,7 @@ public class InterDomainForwarding extends Forwarding implements
 
     protected FloodlightContext prepInterDomainForwarding(FloodlightContext cntx) {
 
-        log.debug("InterDomainForwarding: forward packet");
+        log.debug("InterDomainForwarding applied - gateway-bound traffic");
 
         // Here query BgpRoute for the right gateway IP
         // TODO: replace hard coded constant to BgpRoute query call
@@ -115,7 +115,6 @@ public class InterDomainForwarding extends Forwarding implements
         
         for (IDevice d : allDevices) {
             for (int i = 0; i < d.getIPv4Addresses().length; i++) {
-                log.debug("InterdomainForwarding find device: "+IPv4.fromIPv4Address(gwIPAddress)+" -- "+IPv4.fromIPv4Address(d.getIPv4Addresses()[i]));
                 if (gwIPAddress.equals(d.getIPv4Addresses()[i])) {
                     gwDevice = d;
                     break;
@@ -132,7 +131,7 @@ public class InterDomainForwarding extends Forwarding implements
         } else {
             // if no known devices match the BgpRoute suggested gateway
             // IP, this is an error in BgpRoute to be handled
-            log.debug("KC L3 forwarding: bad gw assigned");
+            log.debug("KC L3 forwarding: assigned gw not known (error condition)");
         }
 
         return cntx;
@@ -313,10 +312,9 @@ public class InterDomainForwarding extends Forwarding implements
 
                 // check gw IP address, if false, bypass for normal handling
                 // TODO: add restAPI for user to configure available gateways
-                // or get from bgpRoute
-                String debugStr = "KC arp address: " + (arpRequest.getTargetProtocolAddress()[0] & 0xff) + "." +
-                        (arpRequest.getTargetProtocolAddress()[1] & 0xff) + "."+ (arpRequest.getTargetProtocolAddress()[2] & 0xff);
-                log.debug(debugStr);
+                // or get from bgpRoute. Former makes better sense, since floodlight
+                // should be in charge of SDN subnets.  Currently done with static
+                // -cf interdomain.properties at floodlight startup
                 
                 byte[] targetProtocolAddress = arpRequest.getTargetProtocolAddress();
                 byte[] targetSubnetAddress=targetProtocolAddress.clone();
@@ -330,8 +328,12 @@ public class InterDomainForwarding extends Forwarding implements
                 else if (localSubnetMaskBits >= 0)
                     targetSubnetAddress[0] = (byte) (targetProtocolAddress[0] >> (8-localSubnetMaskBits) << (8-localSubnetMaskBits));
                 
-                log.debug("target subnet" + (targetSubnetAddress[0]&0xff)+ "." + (targetSubnetAddress[1]&0xff) + "." + (targetSubnetAddress[2]&0xff) + "." + (targetSubnetAddress[3]&0xff));
-                
+                // TODO: Currently IP hosts would never arp for external address
+                //       The following rule is not really meaningful as it should always be true
+                //       Instead, isExternal should be a match against a SDN enforced 
+                //       default gateway address which must be distributed by DHCP server, or match
+                //       against ANY known gateways and send on to prepInterdomainForwarding to
+                //       get BGProute's suggested gateway.
                 boolean isExternal = IPv4.toIPv4Address(targetSubnetAddress)!=localSubnet;
 
                 if (isExternal) {
