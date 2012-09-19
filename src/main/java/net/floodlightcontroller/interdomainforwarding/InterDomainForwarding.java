@@ -18,6 +18,7 @@ import org.openflow.util.Unsigned;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import net.floodlightcontroller.bgproute.IBgpRouteService;
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFSwitch;
@@ -41,11 +42,12 @@ public class InterDomainForwarding extends Forwarding implements
     protected static Logger log = LoggerFactory
             .getLogger(InterDomainForwarding.class);
 
+    protected IBgpRouteService bgpRoute;
     // proxyArp MAC address - can replace with other values in future
     public final String GW_PROXY_ARP_MACADDRESS = "12:34:56:78:90:12";
 
-    protected static Integer localSubnet;
-    
+    protected static String proxyGwIp;    
+    protected static Integer localSubnet;    
     protected static Integer localSubnetMaskBits;
     
     // doProxyArp called when destination is external to SDN network
@@ -99,39 +101,49 @@ public class InterDomainForwarding extends Forwarding implements
 
         log.debug("InterDomainForwarding applied - gateway-bound traffic");
 
-        // Here query BgpRoute for the right gateway IP
-        // TODO: replace hard coded constant to BgpRoute query call
-        String gwIPAddressStr = "192.168.10.1";
-        Integer gwIPAddress = IPv4.toIPv4Address(gwIPAddressStr);
+        Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
+                IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
 
-        // Below searches for gateway device handler using IDeviceService
+        IPacket pkt = eth.getPayload();
+        
+        if(pkt instanceof IPv4) {          
+            IPv4 ipPkt = (IPv4) pkt;
+            // Here query BgpRoute for the right gateway IP
+            byte[] gwIPAddressByte = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress()));
+            Integer gwIPAddress = IPv4.toIPv4Address(gwIPAddressByte);
 
-        // retrieve all known devices
-        Collection<? extends IDevice> allDevices = deviceManager
+            // Below searches for gateway device handler using IDeviceService
+
+            // retrieve all known devices
+            Collection<? extends IDevice> allDevices = deviceManager
                 .getAllDevices();
 
-        // look for device with chosen gateway's IP address
-        IDevice gwDevice = null;
+            // look for device with chosen gateway's IP address
+            IDevice gwDevice = null;
         
-        for (IDevice d : allDevices) {
-            for (int i = 0; i < d.getIPv4Addresses().length; i++) {
-                if (gwIPAddress.equals(d.getIPv4Addresses()[i])) {
-                    gwDevice = d;
-                    break;
+            for (IDevice d : allDevices) {
+                for (int i = 0; i < d.getIPv4Addresses().length; i++) {
+                    if (gwIPAddress.equals(d.getIPv4Addresses()[i])) {
+                        gwDevice = d;
+                        break;
+                    }
                 }
             }
-        }
 
-        // gw device found
-        if (gwDevice != null) {
-            // overwrite dst device info in cntx
-            IDeviceService.fcStore.put(cntx, IDeviceService.CONTEXT_DST_DEVICE,
-                    gwDevice);
-            log.debug("KC L3 forwarding: assigned gw found");
+            // gw device found
+            if (gwDevice != null) {
+                // overwrite dst device info in cntx
+                IDeviceService.fcStore.put(cntx, IDeviceService.CONTEXT_DST_DEVICE,
+                        gwDevice);
+                log.debug("KC L3 forwarding: assigned gw {} found", IPv4.fromIPv4Address(gwIPAddress));
+            } else {
+                // if no known devices match the BgpRoute suggested gateway
+                // IP, this is an error in BgpRoute to be handled
+                log.debug("KC L3 forwarding: assigned gw {} not known (error condition)", IPv4.fromIPv4Address(gwIPAddress));
+            }        
         } else {
-            // if no known devices match the BgpRoute suggested gateway
-            // IP, this is an error in BgpRoute to be handled
-            log.debug("KC L3 forwarding: assigned gw not known (error condition)");
+            // non-IP packets get here - not supported
+            log.debug("non-IP packet in prepInterDomainForwarding");
         }
 
         return cntx;
@@ -307,35 +319,19 @@ public class InterDomainForwarding extends Forwarding implements
                 // retrieve arp to determine target IP address
                 ARP arpRequest = (ARP) eth.getPayload();
 
-                // If arping for default gateway(s) ==> isExternal==true
-                // respond with proxy arp; otherwise, flood for now
+                // If arping for proxy gateway configured in interdomain.properties
+                // and run with -cf interdomain.properties
+                // ==> isExternal==true
+                // ==> respond with proxy arp; otherwise, flood for now
 
-                // check gw IP address, if false, bypass for normal handling
-                // TODO: add restAPI for user to configure available gateways
-                // or get from bgpRoute. Former makes better sense, since floodlight
-                // should be in charge of SDN subnets.  Currently done with static
-                // -cf interdomain.properties at floodlight startup
+                // TODO: add restAPI for user to configure:
+                //       1) proxyGwIp 
+                // TODO: remove localSubnet from properties
                 
                 byte[] targetProtocolAddress = arpRequest.getTargetProtocolAddress();
-                byte[] targetSubnetAddress=targetProtocolAddress.clone();
+                               
+                boolean isExternal = IPv4.toIPv4Address(targetProtocolAddress)==IPv4.toIPv4Address(proxyGwIp);
                 
-                if (localSubnetMaskBits >= 24)
-                    targetSubnetAddress[3] = (byte) (targetProtocolAddress[3] >> (32-localSubnetMaskBits) << (32-localSubnetMaskBits));
-                else if (localSubnetMaskBits >= 16)
-                    targetSubnetAddress[2] = (byte) (targetProtocolAddress[2] >> (24-localSubnetMaskBits) << (24-localSubnetMaskBits));
-                else if (localSubnetMaskBits >= 8)
-                    targetSubnetAddress[1] = (byte) (targetProtocolAddress[1] >> (16-localSubnetMaskBits) << (16-localSubnetMaskBits));
-                else if (localSubnetMaskBits >= 0)
-                    targetSubnetAddress[0] = (byte) (targetProtocolAddress[0] >> (8-localSubnetMaskBits) << (8-localSubnetMaskBits));
-                
-                // TODO: Currently IP hosts would never arp for external address
-                //       The following rule is not really meaningful as it should always be true
-                //       Instead, isExternal should be a match against a SDN enforced 
-                //       default gateway address which must be distributed by DHCP server, or match
-                //       against ANY known gateways and send on to prepInterdomainForwarding to
-                //       get BGProute's suggested gateway.
-                boolean isExternal = IPv4.toIPv4Address(targetSubnetAddress)!=localSubnet;
-
                 if (isExternal) {
                     doProxyArp(sw, pi, cntx);
 
@@ -366,9 +362,13 @@ public class InterDomainForwarding extends Forwarding implements
 
     @Override
     public void init(FloodlightModuleContext context) throws FloodlightModuleException {
+        
+        bgpRoute = context.getServiceImpl(IBgpRouteService.class);
+        
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
         
+        String proxyGwIp = (String) configOptions.get("proxyGateway");
         String subnet = (String) configOptions.get("localSubnet");
         if (subnet != null) {
             String[] fields = subnet.split("[/]+");           
@@ -376,6 +376,8 @@ public class InterDomainForwarding extends Forwarding implements
             localSubnetMaskBits = Integer.parseInt(fields[1]);
         }
         log.debug("local subnet set to {}/{}", IPv4.fromIPv4Address(localSubnet), localSubnetMaskBits);
+    
         super.init(context);
     }    
+    
 }

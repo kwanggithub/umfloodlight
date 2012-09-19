@@ -23,20 +23,22 @@ public class BgpRouteResource extends ServerResource {
 	public String get(String fmJson) {
 		String dest = (String) getRequestAttributes().get("dest");
 		String output = "";
+		IBgpRouteService bgpRoute = (IBgpRouteService)getContext().getAttributes().
+                get(IBgpRouteService.class.getCanonicalName());
 		
 		if (dest != null) {
 			Prefix p = new Prefix(dest, 32);
 			if (p == null) {
 				return "[GET]: dest address format is wrong";
 			}
-			byte [] nexthop = BgpRoute.lookupRib(p.getAddress());
+			byte [] nexthop = bgpRoute.lookupRib(p.getAddress());
 			if (nexthop != null) {
 				output += "{\"result\": \"" + addrToString(nexthop) + "\"}\n";
 			} else {
 				output += "{\"result\": \"Nexthop does not exist\"}\n";
 			}
 		} else {
-			Ptree ptree = BgpRoute.getPtree();
+			Ptree ptree = bgpRoute.getPtree();
 			output += "{\n  \"rib\": [\n";
 			boolean printed = false;
 			for (PtreeNode node = ptree.begin(); node != null; node = ptree.next(node)) {
@@ -58,7 +60,10 @@ public class BgpRouteResource extends ServerResource {
 	}
 	@Post
 	public String store(String fmJson) {
-		Ptree ptree = BgpRoute.getPtree();
+        IBgpRouteService bgpRoute = (IBgpRouteService)getContext().getAttributes().
+                get(IBgpRouteService.class.getCanonicalName());
+
+	    Ptree ptree = bgpRoute.getPtree();
 
 		String router_id = (String) getRequestAttributes().get("routerid");
 		String prefix = (String) getRequestAttributes().get("prefix");
@@ -80,7 +85,10 @@ public class BgpRouteResource extends ServerResource {
 	
 	@Delete
 	public String delete(String fmJson) {
-		Ptree ptree = BgpRoute.getPtree();
+        IBgpRouteService bgpRoute = (IBgpRouteService)getContext().getAttributes().
+                get(IBgpRouteService.class.getCanonicalName());
+
+        Ptree ptree = bgpRoute.getPtree();
 		
 		String routerId = (String) getRequestAttributes().get("routerid");
 		String prefix = (String) getRequestAttributes().get("prefix");

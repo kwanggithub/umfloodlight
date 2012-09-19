@@ -5,8 +5,6 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-import java.net.UnknownHostException;
-
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
@@ -17,25 +15,25 @@ import net.floodlightcontroller.restserver.IRestApiService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class BgpRoute implements IFloodlightModule, BgpRouteService {
+public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 	
 	protected static Logger log = LoggerFactory.getLogger(BgpRoute.class);
 
 	protected IFloodlightProviderService floodlightProvider;
 	
-	protected static Ptree ptree = null;
+	protected Ptree ptree;
 	
 	@Override
 	public Collection<Class<? extends IFloodlightService>> getModuleServices() {
 		Collection<Class<? extends IFloodlightService>> l = new ArrayList<Class<? extends IFloodlightService>>();
-		l.add(BgpRouteService.class);
+		l.add(IBgpRouteService.class);
 		return l;
 	}
 
 	@Override
 	public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls() {
 		Map<Class<? extends IFloodlightService>, IFloodlightService> m = new HashMap<Class<? extends IFloodlightService>, IFloodlightService>();
-		m.put(BgpRouteService.class, this);
+		m.put(IBgpRouteService.class, this);
 		return m;
 	}
 
@@ -45,31 +43,30 @@ public class BgpRoute implements IFloodlightModule, BgpRouteService {
 	public Collection<Class<? extends IFloodlightService>> getModuleDependencies() {
 		Collection<Class<? extends IFloodlightService>> l = new ArrayList<Class<? extends IFloodlightService>>();
 		l.add(IFloodlightProviderService.class);
-		l.add(BgpRouteService.class);
+		l.add(IBgpRouteService.class);
 		return l;
 	}
 	
 	@Override
 	public void init(FloodlightModuleContext context)
 			throws FloodlightModuleException {
-		if (ptree == null) {
-			ptree = new Ptree(32);
-		}
+	    
+	    ptree = new Ptree(32);
 		
 		// Register floodlight provider and REST handler.
 		floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
 		restApi = context.getServiceImpl(IRestApiService.class);
-
+		
 		// Test.
 		//test();
 	}
 
-	public static Ptree getPtree() {
+	public Ptree getPtree() {
 		return ptree;
 	}
 	
 	// Return nexthop address as byte array.
-	public static byte[] lookupRib(byte[] dest) {
+	public byte[] lookupRib(byte[] dest) {
 		if (ptree == null) {
 			return null;
 		}
