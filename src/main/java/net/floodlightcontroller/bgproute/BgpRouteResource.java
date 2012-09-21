@@ -6,8 +6,9 @@ import org.restlet.resource.Delete;
 import org.restlet.resource.ServerResource;
 
 public class BgpRouteResource extends ServerResource {
+    
 	private String addrToString(byte [] addr) {
-		String str = "";
+	    String str = "";
 		
 		for (int i = 0; i < 4; i++) {
 			int val = (addr[i] & 0xff);
@@ -19,7 +20,8 @@ public class BgpRouteResource extends ServerResource {
 		return str;
 	}
 	
-	@Get
+	@SuppressWarnings("unused")
+    @Get
 	public String get(String fmJson) {
 		String dest = (String) getRequestAttributes().get("dest");
 		String output = "";
@@ -73,6 +75,7 @@ public class BgpRouteResource extends ServerResource {
 		Rib rib = new Rib(router_id, nexthop);
 		
 		Prefix p = new Prefix(prefix, Integer.valueOf(mask));
+		
 		PtreeNode node = ptree.acquire(p.getAddress(), p.masklen);
 		if (node.rib != null) {
 			node.rib = null;
@@ -99,7 +102,6 @@ public class BgpRouteResource extends ServerResource {
 		PtreeNode node = ptree.lookup(p.getAddress(), p.masklen);
 		if (node != null) {
 			node.rib = null;
-			ptree.delReference(node);
 			ptree.delReference(node);
 		}
 		

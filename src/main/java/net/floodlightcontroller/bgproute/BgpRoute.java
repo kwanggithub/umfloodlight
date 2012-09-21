@@ -21,7 +21,7 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 
 	protected IFloodlightProviderService floodlightProvider;
 	
-	protected Ptree ptree;
+	protected static Ptree ptree;
 	
 	@Override
 	public Collection<Class<? extends IFloodlightService>> getModuleServices() {
@@ -68,14 +68,17 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 	// Return nexthop address as byte array.
 	public byte[] lookupRib(byte[] dest) {
 		if (ptree == null) {
-			return null;
+		    log.debug("lookupRib: ptree null");
+		    return null;
 		}
 		
 		PtreeNode node = ptree.match(dest, 32);
 		if (node == null) {
+            log.debug("lookupRib: ptree node null");
 			return null;
 		}
 		if (node.rib == null) {
+            log.debug("lookupRib: ptree rib null");
 			return null;
 		}
 		ptree.delReference(node);
@@ -83,7 +86,8 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 		return node.rib.nextHop.getAddress();
 	}
 	
-	private void test() {
+	@SuppressWarnings("unused")
+    private void test() {
 		System.out.println("Here it is");
 		Prefix p = new Prefix("128.0.0.0", 8);
 		Prefix q = new Prefix("8.0.0.0", 8);

@@ -6,7 +6,7 @@ import java.net.UnknownHostException;
 public class Prefix {
 	public int masklen;
 	protected InetAddress address;
-	
+
 	Prefix(byte[] addr, int masklen) {
 		try {
 			address = InetAddress.getByAddress(addr);

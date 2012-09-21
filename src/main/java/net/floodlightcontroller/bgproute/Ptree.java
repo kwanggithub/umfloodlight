@@ -1,8 +1,5 @@
 package net.floodlightcontroller.bgproute;
 
-import java.util.List;
-import java.net.UnknownHostException;
-
 public class Ptree {
 	int maxKeyBits;
 	int maxKeyOctets;
@@ -32,10 +29,10 @@ public class Ptree {
 		while (node != null
 				&& node.keyBits <= key_bits
 				&& key_match(node.key, node.keyBits, key, key_bits) == true) {
-			if (node.keyBits == key_bits) {
+		    if (node.keyBits == key_bits) {
 				return addReference(node);
 			}
-			
+
 			match = node;
 			
 			if (bit_check(key, node.keyBits) == true) {
@@ -44,7 +41,7 @@ public class Ptree {
 				node = node.left;
 			}
 		}
-		
+
 		PtreeNode add = null;
 		
 		if (node == null) {
@@ -70,6 +67,7 @@ public class Ptree {
 			
 			if (add.keyBits != key_bits) {
 				match = add;
+				
 				add = new PtreeNode(key, key_bits, maxKeyOctets);
 				node_link(match, add);
 			}
@@ -105,9 +103,10 @@ public class Ptree {
 		if (key_bits > maxKeyBits) {
 			return null;
 		}
-		
 		PtreeNode node = top;
 		PtreeNode matched = null;
+
+		if(node!=null)
 		
 		while (node != null
 				&& node.keyBits <= key_bits
@@ -236,10 +235,11 @@ public class Ptree {
 		add.parent = node;
 	}
 	
-	private PtreeNode node_common(PtreeNode node, byte [] key, int key_bits) {
+	@SuppressWarnings("unused")
+    private PtreeNode node_common(PtreeNode node, byte [] key, int key_bits) {
 		int i;
 		int limit = Math.min(node.keyBits, key_bits) / 8;
-		
+
 		for (i = 0; i < limit; i++) {
 			if (node.key[i] != key[i]) {
 				break;
@@ -270,9 +270,9 @@ public class Ptree {
 			return null;
 		
 		int j;
-		for (j = 0; i < i; j++)
+		for (j = 0; j < i; j++)
 			add.key[j] = node.key[j];
-		
+
 		if (boundary != 0)
 			add.key[j] = (byte)(node.key[j] & maskBits[add.keyBits % 8]);
 		
