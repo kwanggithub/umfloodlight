@@ -65,6 +65,7 @@ import org.easymock.Capture;
 import org.easymock.CaptureType;
 import org.easymock.EasyMock;
 import org.junit.Test;
+import org.openflow.protocol.OFFeaturesReply;
 import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFMessage;
@@ -85,6 +86,7 @@ public class ForwardingTest extends FloodlightTestCase {
     protected ITopologyService topology;
     protected MockThreadPoolService threadPool;
     protected IOFSwitch sw1, sw2;
+    protected OFFeaturesReply swFeatures;
     protected IDevice srcDevice, dstDevice1, dstDevice2;
     protected OFPacketIn packetIn;
     protected OFPacketOut packetOut;
@@ -151,13 +153,17 @@ public class ForwardingTest extends FloodlightTestCase {
         flowReconcileMgr.startUp(fmc);
         entityClassifier.startUp(fmc);
         
+        swFeatures = new OFFeaturesReply();
+        swFeatures.setBuffers(1000);
         // Mock switches
         sw1 = EasyMock.createNiceMock(IOFSwitch.class);
         expect(sw1.getId()).andReturn(1L).anyTimes();
+        expect(sw1.getFeaturesReply()).andReturn(swFeatures).anyTimes();
         expect(topology.getL2DomainId(1L)).andReturn(1L).anyTimes();
 
         sw2 = EasyMock.createNiceMock(IOFSwitch.class);  
         expect(sw2.getId()).andReturn(2L).anyTimes();
+        expect(sw2.getFeaturesReply()).andReturn(swFeatures).anyTimes();
         expect(topology.getL2DomainId(2L)).andReturn(1L).anyTimes();
 
         //fastWilcards mocked as this constant
@@ -324,6 +330,8 @@ public class ForwardingTest extends FloodlightTestCase {
         reset(topology);
         expect(topology.getL2DomainId(1L)).andReturn(1L).anyTimes();
         expect(topology.getL2DomainId(2L)).andReturn(1L).anyTimes();
+        expect(topology.isAttachmentPointPort(1L,  (short)1)).andReturn(true).anyTimes();
+        expect(topology.isAttachmentPointPort(2L,  (short)3)).andReturn(true).anyTimes();
         expect(topology.isIncomingBroadcastAllowed(anyLong(), anyShort())).andReturn(true).anyTimes();
 
         // Reset mocks, trigger the packet in, and validate results
@@ -365,6 +373,7 @@ public class ForwardingTest extends FloodlightTestCase {
         reset(topology);
         expect(topology.isAttachmentPointPort(EasyMock.anyLong(), EasyMock.anyShort()))
         .andReturn(true).anyTimes();
+        expect(topology.getL2DomainId(1L)).andReturn(1L).anyTimes();
         replay(topology);
 
         srcDevice = 
@@ -412,6 +421,8 @@ public class ForwardingTest extends FloodlightTestCase {
         reset(topology);
         expect(topology.isIncomingBroadcastAllowed(anyLong(), anyShort())).andReturn(true).anyTimes();
         expect(topology.getL2DomainId(1L)).andReturn(1L).anyTimes();
+        expect(topology.isAttachmentPointPort(1L,  (short)1)).andReturn(true).anyTimes();
+        expect(topology.isAttachmentPointPort(1L,  (short)3)).andReturn(true).anyTimes();
 
         // Reset mocks, trigger the packet in, and validate results
         replay(sw1, sw2, routingEngine, topology);
