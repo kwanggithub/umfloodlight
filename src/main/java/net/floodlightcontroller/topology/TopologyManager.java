@@ -502,7 +502,10 @@ public class TopologyManager implements
     public Route getRoute(long src, short srcPort, long dst, short dstPort, 
                           boolean tunnelEnabled) {
         TopologyInstance ti = getCurrentInstance(tunnelEnabled);
-        return ti.getRoute(src, srcPort, dst, dstPort);
+        if (ti!=null)
+            return ti.getRoute(src, srcPort, dst, dstPort);
+        else
+            return null;
     }
 
     @Override

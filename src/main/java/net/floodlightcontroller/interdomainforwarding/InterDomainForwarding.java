@@ -117,7 +117,7 @@ public class InterDomainForwarding extends Forwarding implements
                 
                 log.debug("prep nexthop {}", gwIPAddressByte);
 
-                if (gwIPAddressByte == null) return cntx; // no next hop info - give up
+//                if (gwIPAddressByte == null) return cntx; // no next hop info - give up
                 
                 Integer gwIPAddress = IPv4.toIPv4Address(gwIPAddressByte);
 
@@ -194,9 +194,10 @@ public class InterDomainForwarding extends Forwarding implements
      *            flow mod. command to use, e.g. OFFlowMod.OFPFC_ADD,
      *            OFFlowMod.OFPFC_MODIFY etc.
      */
+    
     @Override
     public boolean pushRoute(Route route, OFMatch match,
-            Integer wildcard_hints, int bufferId, OFPacketIn pi,
+            Integer wildcard_hints, OFPacketIn pi,
             long pinSwitch, long cookie, FloodlightContext cntx,
             boolean reqeustFlowRemovedNotifn, boolean doFlush,
             short flowModCommand) {
