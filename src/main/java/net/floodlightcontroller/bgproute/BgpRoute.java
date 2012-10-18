@@ -66,7 +66,7 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 	}
 	
 	// Return nexthop address as byte array.
-	public byte[] lookupRib(byte[] dest) {
+	public Rib lookupRib(byte[] dest) {
 		if (ptree == null) {
 		    log.debug("lookupRib: ptree null");
 		    return null;
@@ -83,7 +83,7 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 		}
 		ptree.delReference(node);
 		
-		return node.rib.nextHop.getAddress();
+		return node.rib;
 	}
 	
 	@SuppressWarnings("unused")

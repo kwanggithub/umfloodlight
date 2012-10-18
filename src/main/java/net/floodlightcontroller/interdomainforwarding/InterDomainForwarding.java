@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import net.floodlightcontroller.bgproute.IBgpRouteService;
+import net.floodlightcontroller.bgproute.Rib;
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFSwitch;
@@ -112,7 +113,8 @@ public class InterDomainForwarding extends Forwarding implements
                     IPv4.fromIPv4Address(ipPkt.getDestinationAddress()));
                                 
             if (bgpRoute != null) {
-                byte[] gwIPAddressByte = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress()));
+                
+                byte[] gwIPAddressByte = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress())).getNextHop().getAddress();
                                       
                 log.debug("prep nexthop {}", gwIPAddressByte);
 
@@ -287,13 +289,12 @@ public class InterDomainForwarding extends Forwarding implements
                     int ip_pkt_dstIpAddress = ip_pkt.getDestinationAddress();
                     int wildcard_bits = 0;
                     int matched_ip = 0;
-                    for (int i=0; i<localSubnet.length; i++) {
-                        if ((ip_pkt_dstIpAddress >> (32-localSubnetMaskBits[i])) == (localSubnet[i]>> (32-localSubnetMaskBits[i]))) {
-                            wildcard_bits = 32-localSubnetMaskBits[i];
-                            matched_ip = (localSubnet[i] >> wildcard_bits) << wildcard_bits;
-                            break;
-                        }
-                    }
+                    
+                    Rib foundRib = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ip_pkt_dstIpAddress));
+                    
+                    wildcard_bits = 32-foundRib.getMasklen();
+                    matched_ip = (IPv4.toIPv4Address(foundRib.getNextHop().getAddress()) >> wildcard_bits) << wildcard_bits;
+                    
                     if (matched_ip==0)
                         log.debug("no matching local subnet found - cannot set correct ip_prefix wildcard");
                     else {
@@ -301,7 +302,10 @@ public class InterDomainForwarding extends Forwarding implements
                         fm.getMatch().setDataLayerType(Ethernet.TYPE_IPv4);
                         fm.getMatch().setNetworkDestination(matched_ip);
                         int current_wildcard = fm.getMatch().getWildcards();
-                        fm.getMatch().setWildcards((current_wildcard & ~OFMatch.OFPFW_NW_DST_ALL) | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT) | OFMatch.OFPFW_DL_TYPE);                    
+                        fm.getMatch().setWildcards((current_wildcard & ~OFMatch.OFPFW_NW_DST_ALL & ~OFMatch.OFPFW_DL_TYPE) 
+                                | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT) 
+                                | OFMatch.OFPFW_NW_SRC_ALL 
+                                | OFMatch.OFPFW_NW_PROTO);                    
                     }
                 }
             } else {

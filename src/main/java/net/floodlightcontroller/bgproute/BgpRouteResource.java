@@ -33,7 +33,7 @@ public class BgpRouteResource extends ServerResource {
 			if (p == null) {
 				return "[GET]: dest address format is wrong";
 			}
-			byte [] nexthop = bgpRoute.lookupRib(p.getAddress());
+			byte [] nexthop = bgpRoute.lookupRib(p.getAddress()).nextHop.getAddress();
 			if (nexthop != null) {
 				output += "{\"result\": \"" + addrToString(nexthop) + "\"}\n";
 			} else {
@@ -71,12 +71,13 @@ public class BgpRouteResource extends ServerResource {
 		String prefix = (String) getRequestAttributes().get("prefix");
 		String mask = (String) getRequestAttributes().get("mask");
 		String nexthop = (String) getRequestAttributes().get("nexthop");
-		
-		Rib rib = new Rib(router_id, nexthop);
-		
+				
 		Prefix p = new Prefix(prefix, Integer.valueOf(mask));
 		
 		PtreeNode node = ptree.acquire(p.getAddress(), p.masklen);
+		
+		Rib rib = new Rib(router_id, nexthop, p.masklen);
+
 		if (node.rib != null) {
 			node.rib = null;
 			ptree.delReference(node);
