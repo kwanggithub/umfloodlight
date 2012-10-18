@@ -45,9 +45,9 @@ public class InterDomainForwarding extends Forwarding implements
     // proxyArp MAC address - can replace with other values in future
     public final String GW_PROXY_ARP_MACADDRESS = "12:34:56:78:90:12";
 
-    protected static String proxyGwIp;
-    protected static Integer localSubnet;
-    protected static Integer localSubnetMaskBits;
+    protected static String[] proxyGwIp;
+    protected static Integer[] localSubnet;
+    protected static Integer[] localSubnetMaskBits;
 
     // doProxyArp called when destination is external to SDN network
     protected void doProxyArp(IOFSwitch sw, OFPacketIn pi,
@@ -90,7 +90,7 @@ public class InterDomainForwarding extends Forwarding implements
 
         // push ARP out
         pushPacket(arpReply, sw, OFPacketOut.BUFFER_ID_NONE, (short) 4,
-                pi.getInPort(), cntx);
+                pi.getInPort(), cntx, true);
         log.debug("proxy ARP reply (unicast) pushed");
 
         return;
@@ -113,11 +113,10 @@ public class InterDomainForwarding extends Forwarding implements
                                 
             if (bgpRoute != null) {
                 byte[] gwIPAddressByte = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress()));
-                
-                
+                                      
                 log.debug("prep nexthop {}", gwIPAddressByte);
 
-//                if (gwIPAddressByte == null) return cntx; // no next hop info - give up
+                if (gwIPAddressByte == null) return cntx; // no next hop info - give up
                 
                 Integer gwIPAddress = IPv4.toIPv4Address(gwIPAddressByte);
 
@@ -279,6 +278,31 @@ public class InterDomainForwarding extends Forwarding implements
                     newActions.add(0, rewriteAction);
                     fm.setActions(newActions);
                     fm.setLengthU(fm.getLengthU() + rewriteAction.getLengthU());
+                    
+                    Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
+                            IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+                    
+                    // get packet's destination IP address and find out matching subnet
+                    IPv4 ip_pkt = (IPv4) eth.getPayload();
+                    int ip_pkt_dstIpAddress = ip_pkt.getDestinationAddress();
+                    int wildcard_bits = 0;
+                    int matched_ip = 0;
+                    for (int i=0; i<localSubnet.length; i++) {
+                        if ((ip_pkt_dstIpAddress >> (32-localSubnetMaskBits[i])) == (localSubnet[i]>> (32-localSubnetMaskBits[i]))) {
+                            wildcard_bits = 32-localSubnetMaskBits[i];
+                            matched_ip = (localSubnet[i] >> wildcard_bits) << wildcard_bits;
+                            break;
+                        }
+                    }
+                    if (matched_ip==0)
+                        log.debug("no matching local subnet found - cannot set correct ip_prefix wildcard");
+                    else {
+                        // set flow mod dst IP address and wildcard 
+                        fm.getMatch().setDataLayerType(Ethernet.TYPE_IPv4);
+                        fm.getMatch().setNetworkDestination(matched_ip);
+                        int current_wildcard = fm.getMatch().getWildcards();
+                        fm.getMatch().setWildcards((current_wildcard & ~OFMatch.OFPFW_NW_DST_ALL) | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT) | OFMatch.OFPFW_DL_TYPE);                    
+                    }
                 }
             } else {
                 // update match for output action
@@ -348,13 +372,17 @@ public class InterDomainForwarding extends Forwarding implements
                 byte[] targetProtocolAddress = arpRequest
                         .getTargetProtocolAddress();
 
-                log.debug("isEqual address {} : {}",
-                        IPv4.toIPv4Address(targetProtocolAddress),
-                        IPv4.toIPv4Address(proxyGwIp));
 
-                boolean isExternal = IPv4.toIPv4Address(targetProtocolAddress) == IPv4
-                        .toIPv4Address(proxyGwIp);
-
+                boolean isExternal = false;
+                for (int i=0; i<proxyGwIp.length; i++) {
+                    if (IPv4.toIPv4Address(targetProtocolAddress) == IPv4.toIPv4Address(proxyGwIp[i])) {
+                        isExternal = true;
+                        log.debug("isEqual address {} : {}",
+                                IPv4.toIPv4Address(targetProtocolAddress),
+                                IPv4.toIPv4Address(proxyGwIp[i]));
+                        break;
+                    }
+                }
                 if (isExternal) {
                     doProxyArp(sw, pi, cntx);
 
@@ -392,16 +420,28 @@ public class InterDomainForwarding extends Forwarding implements
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
 
-        proxyGwIp = configOptions.get("proxyGateway");
+        String proxyGwIpString = configOptions.get("proxyGateway");
+        if (proxyGwIpString != null) {
+            proxyGwIp = proxyGwIpString.split("[/, ]+");
+            for (int i=0; i < proxyGwIp.length; i++) {
+                log.debug("add proxy gateway {}",
+                        proxyGwIp[i]);
+            }
+        }
 
         String subnet = configOptions.get("localSubnet");
         if (subnet != null) {
-            String[] fields = subnet.split("[/]+");
-            localSubnet = IPv4.toIPv4Address(fields[0]);
-            localSubnetMaskBits = Integer.parseInt(fields[1]);
+            String[] fields = subnet.split("[/, ]+");
+            int addresses = fields.length/2;
+            localSubnet = new Integer[addresses];
+            localSubnetMaskBits = new Integer[addresses];
+            for (int i=0; i<addresses; i++) {
+                localSubnet[i] = IPv4.toIPv4Address(fields[2*i]);
+                localSubnetMaskBits[i] = Integer.parseInt(fields[2*i+1]);
+                log.debug("add local subnet {}/{}",
+                        IPv4.fromIPv4Address(localSubnet[i]), localSubnetMaskBits[i]);
+            }
         }
-        log.debug("local subnet set to {}/{}",
-                IPv4.fromIPv4Address(localSubnet), localSubnetMaskBits);
 
         super.init(context);
     }
