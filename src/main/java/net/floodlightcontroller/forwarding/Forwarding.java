@@ -152,7 +152,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
                 log.debug("write drop flow-mod sw={} match={} flow-mod={}",
                           new Object[] { sw, match, fm });
             }
-            sw.write(fm, cntx);
+            messageDamper.write(sw, fm, cntx);
         } catch (IOException e) {
             log.error("Failure writing drop flow mod", e);
         }
@@ -260,7 +260,30 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
                             long cookie = 
                                     AppCookie.makeCookie(FORWARDING_APP_ID, 0);
                             
-                            pushRoute(route, match, 0, pi, sw.getId(), cookie, 
+                         // if there is prior routing decision use wildcard                                                     
+                            Integer wildcard_hints = null;
+                            IRoutingDecision decision = null;
+                            if (cntx != null) {
+                                decision = IRoutingDecision.rtStore
+                                        .get(cntx,
+                                                IRoutingDecision.CONTEXT_DECISION);
+                            }
+                            if (decision != null) {
+                                wildcard_hints = decision.getWildcards();
+                            } else {
+                            	// L2 only wildcard if there is no prior route decision
+                                wildcard_hints = ((Integer) sw
+                                        .getAttribute(IOFSwitch.PROP_FASTWILDCARDS))
+                                        .intValue()
+                                        & ~OFMatch.OFPFW_IN_PORT
+                                        & ~OFMatch.OFPFW_DL_VLAN
+                                        & ~OFMatch.OFPFW_DL_SRC
+                                        & ~OFMatch.OFPFW_DL_DST
+                                        & ~OFMatch.OFPFW_NW_SRC_MASK
+                                        & ~OFMatch.OFPFW_NW_DST_MASK;
+                            }
+
+                            pushRoute(route, match, wildcard_hints, pi, sw.getId(), cookie, 
                                       cntx, requestFlowRemovedNotifn, false,
                                       OFFlowMod.OFPFC_ADD);
                         }
@@ -309,9 +332,11 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
             (OFPacketOut) floodlightProvider.getOFMessageFactory().getMessage(OFType.PACKET_OUT);
         List<OFAction> actions = new ArrayList<OFAction>();
         if (sw.hasAttribute(IOFSwitch.PROP_SUPPORTS_OFPP_FLOOD)) {
-            actions.add(new OFActionOutput(OFPort.OFPP_FLOOD.getValue(), (short)0));
+            actions.add(new OFActionOutput(OFPort.OFPP_FLOOD.getValue(), 
+                                           (short)0xFFFF));
         } else {
-            actions.add(new OFActionOutput(OFPort.OFPP_ALL.getValue(), (short)0));
+            actions.add(new OFActionOutput(OFPort.OFPP_ALL.getValue(), 
+                                           (short)0xFFFF));
         }
         po.setActions(actions);
         po.setActionsLength((short) OFActionOutput.MINIMUM_LENGTH);
@@ -332,7 +357,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
                 log.trace("Writing flood PacketOut switch={} packet-in={} packet-out={}",
                           new Object[] {sw, pi, po});
             }
-            sw.write(po, cntx);
+            messageDamper.write(sw, po, cntx);
         } catch (IOException e) {
             log.error("Failure writing PacketOut switch={} packet-in={} packet-out={}",
                     new Object[] {sw, pi, po}, e);
@@ -341,16 +366,6 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
         return;
     }
     
-    @Override
-    protected OFMatch wildcard(OFMatch match, IOFSwitch sw, Integer hints) {
-        // use same wilcarding as the learning switch
-        int wildcards = ((Integer)sw.getAttribute(IOFSwitch.PROP_FASTWILDCARDS)).intValue() &
-            ~OFMatch.OFPFW_IN_PORT & ~OFMatch.OFPFW_DL_VLAN &
-            ~OFMatch.OFPFW_DL_SRC & ~OFMatch.OFPFW_DL_DST &
-            ~OFMatch.OFPFW_NW_SRC_MASK & ~OFMatch.OFPFW_NW_DST_MASK;
-        return match.clone().setWildcards(wildcards);
-    }
-
     // IFloodlightModule methods
     
     @Override
@@ -396,6 +411,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
                                 "properties file."),
     })
     public void init(FloodlightModuleContext context) throws FloodlightModuleException {
+        super.init();
         this.floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
         this.deviceManager = context.getServiceImpl(IDeviceService.class);
         this.routingEngine = context.getServiceImpl(IRoutingService.class);

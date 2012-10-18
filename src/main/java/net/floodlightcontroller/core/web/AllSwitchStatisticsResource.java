@@ -164,14 +164,10 @@ public class AllSwitchStatisticsResource extends SwitchResourceBase {
         }
         
         public void run() {
-            IFloodlightProviderService floodlightProvider = 
-                    (IFloodlightProviderService)getContext().getAttributes().
-                        get(IFloodlightProviderService.class.getCanonicalName());      
-
             if ((requestType == REQUESTTYPE.OFSTATS) && (statType != null)) {
                 switchReply = getSwitchStatistics(switchId, statType);
             } else if (requestType == REQUESTTYPE.OFFEATURES) {
-                featuresReply = floodlightProvider.getSwitches().get(switchId).getFeaturesReply();
+                featuresReply = getSwitchFeaturesReply(switchId);
             }
         }
     }

@@ -18,6 +18,7 @@
 package net.floodlightcontroller.routing;
 
 import java.io.IOException;
+import java.util.EnumSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -44,6 +45,7 @@ import net.floodlightcontroller.routing.IRoutingDecision;
 import net.floodlightcontroller.routing.Route;
 import net.floodlightcontroller.topology.ITopologyService;
 import net.floodlightcontroller.topology.NodePortTuple;
+import net.floodlightcontroller.util.OFMessageDamper;
 import net.floodlightcontroller.util.TimedCache;
 
 import org.openflow.protocol.OFFlowMod;
@@ -64,10 +66,13 @@ import org.slf4j.LoggerFactory;
  */
 @LogMessageCategory("Flow Programming")
 public abstract class ForwardingBase 
-	implements IOFMessageListener, IDeviceListener {
+    implements IOFMessageListener, IDeviceListener {
     
-	protected static Logger log =
+    protected static Logger log =
             LoggerFactory.getLogger(ForwardingBase.class);
+
+    protected static int OFMESSAGE_DAMPER_CAPACITY = 50000; // TODO: find sweet spot
+    protected static int OFMESSAGE_DAMPER_TIMEOUT = 250; // ms 
 
     public static short FLOWMOD_DEFAULT_IDLE_TIMEOUT = 5; // in seconds
     public static short FLOWMOD_DEFAULT_HARD_TIMEOUT = 0; // infinite
@@ -78,12 +83,14 @@ public abstract class ForwardingBase
     protected ITopologyService topology;
     protected ICounterStoreService counterStore;
     
+    protected OFMessageDamper messageDamper;
+    
     // for broadcast loop suppression
     protected boolean broadcastCacheFeature = true;
     public final int prime1 = 2633;  // for hash calculation
     public final static int prime2 = 4357;  // for hash calculation
     public TimedCache<Long> broadcastCache =
-    		new TimedCache<Long>(100, 5*1000);  // 5 seconds interval;
+        new TimedCache<Long>(100, 5*1000);  // 5 seconds interval;
 
     // flow-mod - for use in the cookie
     public static final int FORWARDING_APP_ID = 2; // TODO: This must be managed
@@ -102,6 +109,16 @@ public abstract class ForwardingBase
                     return d1ClusterId.compareTo(d2ClusterId);
                 }
             };
+            
+    /**
+     * init data structures
+     * 
+     */
+    protected void init() {
+        messageDamper = new OFMessageDamper(OFMESSAGE_DAMPER_CAPACITY, 
+                                            EnumSet.of(OFType.FLOW_MOD),
+                                            OFMESSAGE_DAMPER_TIMEOUT);
+    }
 
     /**
      * Adds a listener for devicemanager and registers for PacketIns.
@@ -151,7 +168,7 @@ public abstract class ForwardingBase
                                                    decision,
                                                    cntx);
             default:
-            	break;
+                break;
         }
         return Command.CONTINUE;
     }
@@ -176,12 +193,12 @@ public abstract class ForwardingBase
         @LogMessageDoc(level="WARN",
             message="Unable to push route, switch at DPID {dpid} not available",
             explanation="A switch along the calculated path for the " +
-            		"flow has disconnected.",
+                        "flow has disconnected.",
             recommendation=LogMessageDoc.CHECK_SWITCH),
         @LogMessageDoc(level="ERROR",
             message="Failure writing flow mod",
             explanation="An I/O error occurred while writing a " +
-            		"flow modification to a switch",
+                        "flow modification to a switch",
             recommendation=LogMessageDoc.CHECK_SWITCH),            
     })
     public boolean pushRoute(Route route, OFMatch match, 
@@ -204,7 +221,7 @@ public abstract class ForwardingBase
         actions.add(action);
 
         fm.setIdleTimeout(FLOWMOD_DEFAULT_IDLE_TIMEOUT)
-        	.setHardTimeout(FLOWMOD_DEFAULT_HARD_TIMEOUT)
+            .setHardTimeout(FLOWMOD_DEFAULT_HARD_TIMEOUT)
             .setBufferId(OFPacketOut.BUFFER_ID_NONE)
             .setCookie(cookie)
             .setCommand(flowModCommand)
@@ -257,7 +274,7 @@ public abstract class ForwardingBase
                                           fm.getMatch().getInputPort(),
                                           outPort });
                 }
-                sw.write(fm, cntx);
+                messageDamper.write(sw, fm, cntx);
                 if (doFlush) {
                     sw.flush();
                 }
@@ -302,6 +319,7 @@ public abstract class ForwardingBase
      * @param inPort    input port
      * @param outPort   output port
      * @param cntx      context of the packet
+     * @param flush     force to flush the packet.
      */
     @LogMessageDocs({
         @LogMessageDoc(level="ERROR",
@@ -309,7 +327,7 @@ public abstract class ForwardingBase
                     "Cannot send packetOut. " +
                     "srcSwitch={dpid} inPort={port} outPort={port}",
             explanation="The switch send a malformed packet-in." +
-            		"The packet will be dropped",
+                        "The packet will be dropped",
             recommendation=LogMessageDoc.REPORT_SWITCH_BUG),
         @LogMessageDoc(level="ERROR",
             message="Failure writing packet out",
@@ -322,7 +340,8 @@ public abstract class ForwardingBase
                            int bufferId,
                            short inPort,
                            short outPort, 
-                           FloodlightContext cntx) {
+                           FloodlightContext cntx,
+                           boolean flush) {
         
         
         if (log.isTraceEnabled()) {
@@ -351,7 +370,7 @@ public abstract class ForwardingBase
         if (po.getBufferId() == OFPacketOut.BUFFER_ID_NONE) {
             if (packet == null) {
                 log.error("BufferId is not set and packet data is null. " +
-                		"Cannot send packetOut. " +
+                          "Cannot send packetOut. " +
                         "srcSwitch={} inPort={} outPort={}",
                         new Object[] {sw, inPort, outPort});
                 return;
@@ -365,7 +384,7 @@ public abstract class ForwardingBase
 
         try {
             counterStore.updatePktOutFMCounterStore(sw, po);
-            sw.write(po, cntx);
+            messageDamper.write(sw, po, cntx, flush);
         } catch (IOException e) {
             log.error("Failure writing packet out", e);
         }
@@ -426,7 +445,7 @@ public abstract class ForwardingBase
 
         // If the switch doens't support buffering set the buffer id to be none
         // otherwise it'll be the the buffer id of the PacketIn
-        if (sw.getFeaturesReply().getBuffers() == 0) {
+        if (sw.getBuffers() == 0) {
             // We set the PI buffer id here so we don't have to check again below
             pi.setBufferId(OFPacketOut.BUFFER_ID_NONE);
             po.setBufferId(OFPacketOut.BUFFER_ID_NONE);
@@ -448,7 +467,7 @@ public abstract class ForwardingBase
 
         try {
             counterStore.updatePktOutFMCounterStore(sw, po);
-            sw.write(po, cntx);
+            messageDamper.write(sw, po, cntx);
         } catch (IOException e) {
             log.error("Failure writing packet out", e);
         }
@@ -505,7 +524,7 @@ public abstract class ForwardingBase
                         "interfaces={} packet-out={}",
                         new Object[] {sw.getId(), outPorts, po});
             }
-            sw.write(po, cntx);
+            messageDamper.write(sw, po, cntx);
 
         } catch (IOException e) {
             log.error("Failure writing packet out", e);
@@ -539,7 +558,7 @@ public abstract class ForwardingBase
     }
 
     protected boolean isInBroadcastCache(IOFSwitch sw, OFPacketIn pi,
-    		FloodlightContext cntx) {
+                        FloodlightContext cntx) {
         // Get the cluster id of the switch.
         // Get the hash of the Ethernet packet.
         if (sw == null) return true;  
@@ -549,7 +568,7 @@ public abstract class ForwardingBase
 
         Ethernet eth = 
             IFloodlightProviderService.bcStore.get(cntx,
-            		IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+                IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
         
         Long broadcastHash;
         broadcastHash = topology.getL2DomainId(sw.getId()) * prime1 +
@@ -624,6 +643,7 @@ public abstract class ForwardingBase
         try {
             log.debug("write drop flow-mod sw={} match={} flow-mod={}",
                       new Object[] { sw, match, fm });
+            // TODO: can't use the message damper sine this method is static
             sw.write(fm, null);
         } catch (IOException e) {
             log.error("Failure writing deny flow mod", e);

@@ -41,6 +41,9 @@ import net.floodlightcontroller.core.IListener.Command;
 import net.floodlightcontroller.core.IOFSwitch;
 import net.floodlightcontroller.core.IOFSwitchListener;
 import net.floodlightcontroller.core.OFMessageFilterManager;
+import net.floodlightcontroller.core.internal.Controller.IUpdate;
+import net.floodlightcontroller.core.internal.Controller.SwitchUpdate;
+import net.floodlightcontroller.core.internal.Controller.SwitchUpdateType;
 import net.floodlightcontroller.core.internal.OFChannelState.HandshakeState;
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.test.MockFloodlightProvider;
@@ -72,9 +75,11 @@ import org.openflow.protocol.OFPacketIn;
 import org.openflow.protocol.OFPacketOut;
 import org.openflow.protocol.OFPhysicalPort;
 import org.openflow.protocol.OFPort;
+import org.openflow.protocol.OFPortStatus;
 import org.openflow.protocol.OFStatisticsReply;
 import org.openflow.protocol.OFType;
 import org.openflow.protocol.OFPacketIn.OFPacketInReason;
+import org.openflow.protocol.OFPortStatus.OFPortReason;
 import org.openflow.protocol.OFVendor;
 import org.openflow.protocol.action.OFAction;
 import org.openflow.protocol.action.OFActionOutput;
@@ -154,19 +159,18 @@ public class ControllerTest extends FloodlightTestCase {
     protected void setupSwitchForAddSwitch(IOFSwitch sw, long dpid) {
         String dpidString = HexString.toHexString(dpid);
                 
-        OFFeaturesReply featuresReply = new OFFeaturesReply();
-        featuresReply.setDatapathId(dpid);
-        featuresReply.setPorts(new ArrayList<OFPhysicalPort>());
-        
         expect(sw.getId()).andReturn(dpid).anyTimes();
         expect(sw.getStringId()).andReturn(dpidString).anyTimes();
         expect(sw.getConnectedSince()).andReturn(new Date());
         Channel channel = createMock(Channel.class);
         expect(sw.getChannel()).andReturn(channel);
         expect(channel.getRemoteAddress()).andReturn(null);
-        
-        expect(sw.getFeaturesReply()).andReturn(featuresReply).anyTimes();
-        expect(sw.getPorts()).andReturn(new HashMap<Short,OFPhysicalPort>());
+
+        expect(sw.getCapabilities()).andReturn(0).anyTimes();
+        expect(sw.getBuffers()).andReturn(0).anyTimes();
+        expect(sw.getTables()).andReturn((byte)0).anyTimes();
+        expect(sw.getActions()).andReturn(0).anyTimes();
+        expect(sw.getPorts()).andReturn(new ArrayList<OFPhysicalPort>()).anyTimes();
     }
     
     /**
@@ -191,7 +195,6 @@ public class ControllerTest extends FloodlightTestCase {
 
         IOFSwitch sw = createMock(IOFSwitch.class);
         expect(sw.getStringId()).andReturn("00:00:00:00:00:00:00").anyTimes();
-        expect(sw.getFeaturesReply()).andReturn(new OFFeaturesReply()).anyTimes();
 
         // Build our test packet
         IPacket testPacket = new Ethernet()
@@ -245,7 +248,6 @@ public class ControllerTest extends FloodlightTestCase {
         expect(test1.receive(eq(sw), eq(pi), isA(FloodlightContext.class))).andReturn(Command.STOP);       
         //expect(test1.getId()).andReturn(0).anyTimes();
         expect(sw.getStringId()).andReturn("00:00:00:00:00:00:00").anyTimes();
-        expect(sw.getFeaturesReply()).andReturn(new OFFeaturesReply()).anyTimes();
         replay(test1, test2, sw);
         controller.handleMessage(sw, pi, null);
         verify(test1, test2, sw);
@@ -488,7 +490,6 @@ public class ControllerTest extends FloodlightTestCase {
         //expect(oldsw.getId()).andReturn(0L).anyTimes();
         //expect(oldsw.asyncRemoveSwitchLock()).andReturn(rwlock.writeLock()).anyTimes();
         //oldsw.setConnected(false);
-        //expect(oldsw.getFeaturesReply()).andReturn(new OFFeaturesReply()).anyTimes();
         //expect(oldsw.getStringId()).andReturn("00:00:00:00:00:00:00").anyTimes();
 
         Channel channel = createNiceMock(Channel.class);
@@ -503,8 +504,11 @@ public class ControllerTest extends FloodlightTestCase {
         Channel channel2 = createMock(Channel.class);
         expect(newsw.getChannel()).andReturn(channel2);
         expect(channel2.getRemoteAddress()).andReturn(null);
-        expect(newsw.getFeaturesReply()).andReturn(new OFFeaturesReply()).anyTimes();
-        expect(newsw.getPorts()).andReturn(new HashMap<Short,OFPhysicalPort>());
+        expect(newsw.getPorts()).andReturn(new ArrayList<OFPhysicalPort>());
+        expect(newsw.getCapabilities()).andReturn(0).anyTimes();
+        expect(newsw.getBuffers()).andReturn(0).anyTimes();
+        expect(newsw.getTables()).andReturn((byte)0).anyTimes();
+        expect(newsw.getActions()).andReturn(0).anyTimes();
         controller.activeSwitches.put(0L, oldsw);
         replay(newsw, channel, channel2);
 
@@ -518,9 +522,11 @@ public class ControllerTest extends FloodlightTestCase {
         class DummySwitchListener implements IOFSwitchListener {
             public int nAdded;
             public int nRemoved;
+            public int nPortChanged;
             public DummySwitchListener() {
                 nAdded = 0;
                 nRemoved = 0;
+                nPortChanged = 0;
             }
             public synchronized void addedSwitch(IOFSwitch sw) {
                 nAdded++;
@@ -533,6 +539,11 @@ public class ControllerTest extends FloodlightTestCase {
             public String getName() {
                 return "dummy";
             }
+            @Override
+            public void switchPortChanged(Long switchId) {
+                nPortChanged++;
+                notifyAll();
+            }
         }
         DummySwitchListener switchListener = new DummySwitchListener();
         IOFSwitch sw = createMock(IOFSwitch.class);
@@ -541,14 +552,21 @@ public class ControllerTest extends FloodlightTestCase {
         
         controller.addOFSwitchListener(switchListener);
         synchronized(switchListener) {
-            controller.updates.put(controller.new SwitchUpdate(sw, true));
+            controller.updates.put(controller.new SwitchUpdate(sw,
+                                      Controller.SwitchUpdateType.ADDED));
             switchListener.wait(500);
             assertTrue("IOFSwitchListener.addedSwitch() was not called", 
                     switchListener.nAdded == 1);
-            controller.updates.put(controller.new SwitchUpdate(sw, false));
+            controller.updates.put(controller.new SwitchUpdate(sw, 
+                                      Controller.SwitchUpdateType.REMOVED));
             switchListener.wait(500);
             assertTrue("IOFSwitchListener.removedSwitch() was not called", 
                     switchListener.nRemoved == 1);
+            controller.updates.put(controller.new SwitchUpdate(sw, 
+                                      Controller.SwitchUpdateType.PORTCHANGED));
+            switchListener.wait(500);
+            assertTrue("IOFSwitchListener.switchPortChanged() was not called", 
+                    switchListener.nPortChanged == 1);
         }
     }
     
@@ -923,6 +941,27 @@ public class ControllerTest extends FloodlightTestCase {
         assertTrue("activeSwitches must be empty",
                    controller.activeSwitches.isEmpty());
         reset(ch, chdlr.sw);
+              
+        
+        // a different error message - should also reject role request
+        msg.setErrorType(OFErrorType.OFPET_BAD_REQUEST);
+        msg.setErrorCode(OFBadRequestCode.OFPBRC_EPERM);
+        state.firstRoleReplyReceived = false;
+        controller.role = Role.SLAVE;
+        expect(chdlr.sw.checkFirstPendingRoleRequestXid(xid)).andReturn(true);
+        chdlr.sw.deliverRoleRequestNotSupported(xid);
+        expect(chdlr.sw.getChannel()).andReturn(ch).anyTimes();
+        expect(ch.close()).andReturn(null);
+        replay(ch, chdlr.sw);
+        
+        chdlr.processOFMessage(msg);
+        verify(ch, chdlr.sw);
+        assertTrue("state.firstRoleReplyReceived must be True even with EPERM",
+                   state.firstRoleReplyReceived);
+        assertTrue("activeSwitches must be empty", 
+                   controller.activeSwitches.isEmpty());
+        reset(ch, chdlr.sw);
+    
         
         // We are MASTER, the switch should be added to the list of active
         // switches.
@@ -941,26 +980,7 @@ public class ControllerTest extends FloodlightTestCase {
         assertSame("activeSwitches must contain this switch",
                    chdlr.sw, controller.activeSwitches.get(0L));
         reset(ch, chdlr.sw);
-        
-        
-        // a different error messge
-        msg.setErrorType(OFErrorType.OFPET_BAD_REQUEST);
-        msg.setErrorCode(OFBadRequestCode.OFPBRC_EPERM);
-        state.firstRoleReplyReceived = false;
-        controller.role = Role.MASTER;
-        controller.activeSwitches.clear();
-        expect(chdlr.sw.checkFirstPendingRoleRequestXid(xid)).andReturn(true);
-        expect(chdlr.sw.getChannel()).andReturn(ch).anyTimes();
-        expect(ch.close()).andReturn(null);
-        replay(ch, chdlr.sw);
-        
-        chdlr.processOFMessage(msg);
-        verify(ch, chdlr.sw);
-        assertFalse("state.firstRoleReplyReceived must be false",
-                   state.firstRoleReplyReceived);
-        assertTrue("activeSwitches must be empty", 
-                   controller.activeSwitches.isEmpty());
-        reset(ch, chdlr.sw);
+
     }
     
     
@@ -1175,5 +1195,56 @@ public class ControllerTest extends FloodlightTestCase {
         }
         assertTrue(exceptionThrown);
         verify(sw);
+    }
+    
+    public void verifyPortChangedUpdateInQueue(IOFSwitch sw) throws Exception {
+        assertEquals(1, controller.updates.size());
+        IUpdate update = controller.updates.take();
+        assertEquals(true, update instanceof SwitchUpdate);
+        SwitchUpdate swUpdate = (SwitchUpdate)update;
+        assertEquals(sw, swUpdate.sw);
+        assertEquals(SwitchUpdateType.PORTCHANGED, swUpdate.switchUpdateType);
+    }
+    
+    /*
+     * Test handlePortStatus()
+     * TODO: test correct updateStorage behavior!
+     */
+    @Test 
+    public void testHandlePortStatus() throws Exception {
+        IOFSwitch sw = createMock(IOFSwitch.class);
+        OFPhysicalPort port = new OFPhysicalPort();
+        port.setName("myPortName1");
+        port.setPortNumber((short)42);
+        
+        OFPortStatus ofps = new OFPortStatus();
+        ofps.setDesc(port);
+        
+        ofps.setReason((byte)OFPortReason.OFPPR_ADD.ordinal());
+        sw.setPort(port);
+        expectLastCall().once();
+        replay(sw);
+        controller.handlePortStatusMessage(sw, ofps, false);
+        verify(sw);
+        verifyPortChangedUpdateInQueue(sw);
+        reset(sw);
+        
+        ofps.setReason((byte)OFPortReason.OFPPR_MODIFY.ordinal());
+        sw.setPort(port);
+        expectLastCall().once();
+        replay(sw);
+        controller.handlePortStatusMessage(sw, ofps, false);
+        verify(sw);
+        verifyPortChangedUpdateInQueue(sw);
+        reset(sw);
+        
+        ofps.setReason((byte)OFPortReason.OFPPR_DELETE.ordinal());
+        sw.deletePort(port.getPortNumber());
+        expectLastCall().once();
+        replay(sw);
+        controller.handlePortStatusMessage(sw, ofps, false);
+        verify(sw);
+        verifyPortChangedUpdateInQueue(sw);
+        reset(sw);
     }
 }

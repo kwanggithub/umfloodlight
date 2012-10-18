@@ -18,6 +18,7 @@
 package net.floodlightcontroller.core;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -83,11 +84,16 @@ public interface IOFSwitch {
     public Channel getChannel();
 
     /**
-     * Returns the cached OFFeaturesReply message returned by the switch during
-     * the initial handshake.
+     * Returns switch features from features Reply
      * @return
      */
-    public OFFeaturesReply getFeaturesReply();
+    public int getBuffers();
+    
+    public int getActions();
+    
+    public int getCapabilities();
+    
+    public byte getTables();
 
     /**
      * Set the OFFeaturesReply message returned by the switch during initial
@@ -108,9 +114,19 @@ public interface IOFSwitch {
      * snapshot of the ports at the time the switch connected to the controller
      * whereas this port list also reflects the port status messages that have
      * been received.
-     * @return Unmodifiable list of ports
+     * @return Unmodifiable list of ports not backed by the underlying collection
      */
-    public List<Short> getEnabledPorts();
+    public Collection<OFPhysicalPort> getEnabledPorts();
+    
+    /**
+     * Get list of the port numbers of all enabled ports. This will typically
+     * be different from the list of ports in the OFFeaturesReply, since that
+     * one is a static snapshot of the ports at the time the switch connected 
+     * to the controller whereas this port list also reflects the port status
+     * messages that have been received.
+     * @return Unmodifiable list of ports not backed by the underlying collection
+     */
+    public Collection<Short> getEnabledPortNumbers();
 
     /**
      * Retrieve the port object by the port number. The port object
@@ -120,7 +136,16 @@ public interface IOFSwitch {
      * @return port object
      */
     public OFPhysicalPort getPort(short portNumber);
-
+    
+    /**
+     * Retrieve the port object by the port name. The port object
+     * is the one that reflects the port status updates that have been
+     * received, not the one from the features reply.
+     * @param portName
+     * @return port object
+     */
+    public OFPhysicalPort getPort(String portName);
+    
     /**
      * Add or modify a switch port. This is called by the core controller
      * code in response to a OFPortStatus message. It should not typically be
@@ -138,17 +163,36 @@ public interface IOFSwitch {
     public void deletePort(short portNumber);
     
     /**
-     * Get the portmap
-     * @return
+     * Delete a port for the switch. This is called by the core controller
+     * code in response to a OFPortStatus message. It should not typically be
+     * called by other floodlight applications.
+     * @param portName
      */
-    public Map<Short, OFPhysicalPort> getPorts();
+    public void deletePort(String portName);
+    
+    /**
+     * Get list of all ports. This will typically be different from
+     * the list of ports in the OFFeaturesReply, since that one is a static
+     * snapshot of the ports at the time the switch connected to the controller
+     * whereas this port list also reflects the port status messages that have
+     * been received.
+     * @return Unmodifiable list of ports 
+     */
+    public Collection<OFPhysicalPort> getPorts();
 
+    /**
+     * @param portName
+     * @return Whether a port is enabled per latest port status message
+     * (not configured down nor link down nor in spanning tree blocking state)
+     */
+    public boolean portEnabled(short portName);
+    
     /**
      * @param portNumber
      * @return Whether a port is enabled per latest port status message
      * (not configured down nor link down nor in spanning tree blocking state)
      */
-    public boolean portEnabled(short portNumber);
+    public boolean portEnabled(String portName);
 
     /**
      * @param port
@@ -197,6 +241,29 @@ public interface IOFSwitch {
      */
     public Future<List<OFStatistics>> getStatistics(OFStatisticsRequest request)
             throws IOException;
+    
+    /**
+     * Returns a Future object that can be used to retrieve the asynchronous
+     * OFStatisticsReply when it is available.
+     *
+     * @param request statistics request
+     * @return Future object wrapping OFStatisticsReply
+     * @throws IOException 
+     */
+    public Future<OFFeaturesReply> getFeaturesReplyFromSwitch()
+            throws IOException;
+
+    /**
+     * Deliver the featuresReply future reply
+     * @param reply the reply to deliver
+     */
+    void deliverOFFeaturesReply(OFMessage reply);
+
+    /*
+     * Cancel features reply with a specific transction ID
+     * @param transactionId the transaction ID
+     */
+    public void cancelFeaturesReply(int transactionId);
 
     /**
      * Check if the switch is still connected;
@@ -309,5 +376,4 @@ public interface IOFSwitch {
      * NOTE: The contract is limited to the current thread
      */
      public void flush();
-
 }
