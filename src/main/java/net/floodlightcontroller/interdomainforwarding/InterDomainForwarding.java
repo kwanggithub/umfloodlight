@@ -293,7 +293,7 @@ public class InterDomainForwarding extends Forwarding implements
                     Rib foundRib = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ip_pkt_dstIpAddress));
                     
                     wildcard_bits = 32-foundRib.getMasklen();
-                    matched_ip = (IPv4.toIPv4Address(foundRib.getNextHop().getAddress()) >> wildcard_bits) << wildcard_bits;
+                    matched_ip = (ip_pkt_dstIpAddress >> wildcard_bits) << wildcard_bits;
                     
                     if (matched_ip==0)
                         log.debug("no matching local subnet found - cannot set correct ip_prefix wildcard");
