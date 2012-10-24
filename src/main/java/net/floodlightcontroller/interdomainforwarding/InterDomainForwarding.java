@@ -112,55 +112,69 @@ public class InterDomainForwarding extends Forwarding implements
             log.debug("prep destination {}",
                     IPv4.fromIPv4Address(ipPkt.getDestinationAddress()));
                                 
-            if (bgpRoute != null) {
+            boolean isOutgoing = false;
+            for(int i=0; i<localSubnet.length;i++) {
+                int senderIPAddress = ipPkt.getSourceAddress();
+                if (senderIPAddress >> (32-localSubnetMaskBits[i]) == 
+                        localSubnet[i].intValue() >>(32-localSubnetMaskBits[i])) {
+                    isOutgoing = true;                       
+                    break;
+                }
+            }
+
+            byte[] targetIPAddressByte = null;
+            
+            if (isOutgoing) {
+                if(bgpRoute != null) 
+                    targetIPAddressByte = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress())).getNextHop().getAddress();
+                else 
+                    log.debug("prep destination bgpRoute null");
+            }
+            else
+                targetIPAddressByte = IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress());
+                    
+            log.debug("prep nexthop {}", targetIPAddressByte);
+
+//                if (targetIPAddressByte == null) return cntx; // no next hop info - give up
                 
-                byte[] gwIPAddressByte = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress())).getNextHop().getAddress();
-                                      
-                log.debug("prep nexthop {}", gwIPAddressByte);
+            Integer targetIPAddress = IPv4.toIPv4Address(targetIPAddressByte);
 
-                if (gwIPAddressByte == null) return cntx; // no next hop info - give up
-                
-                Integer gwIPAddress = IPv4.toIPv4Address(gwIPAddressByte);
+            // Below searches for gateway device handler using
+            // IDeviceService
 
-                // Below searches for gateway device handler using
-                // IDeviceService
+            // retrieve all known devices
+            Collection<? extends IDevice> allDevices = deviceManager
+                    .getAllDevices();
 
-                // retrieve all known devices
-                Collection<? extends IDevice> allDevices = deviceManager
-                        .getAllDevices();
+            // look for device with chosen gateway's IP address
+            IDevice targetDevice = null;
 
-                // look for device with chosen gateway's IP address
-                IDevice gwDevice = null;
-
-                for (IDevice d : allDevices) {
-                    for (int i = 0; i < d.getIPv4Addresses().length; i++) {
-                        if (gwIPAddress.equals(d.getIPv4Addresses()[i])) {
-                            gwDevice = d;
-                            break;
-                        }
+            for (IDevice d : allDevices) {
+                for (int i = 0; i < d.getIPv4Addresses().length; i++) {
+                    if (targetIPAddress.equals(d.getIPv4Addresses()[i])) {
+                        targetDevice = d;
+                        break;
                     }
                 }
+            }
 
-                // gw device found
-                if (gwDevice != null) {
-                    // overwrite dst device info in cntx
-                    IDeviceService.fcStore.put(cntx,
-                            IDeviceService.CONTEXT_DST_DEVICE, gwDevice);
-                    log.debug("Interdomain forwarding: assigned gw {} found",
-                            IPv4.fromIPv4Address(gwIPAddress));
-                } else {
-                    // if no known devices match the BgpRoute suggested gateway
-                    // IP, this is an error in BgpRoute to be handled
-                    log.debug(
-                            "Interdomain forwarding: assigned gw {} not known (error condition)",
-                            IPv4.fromIPv4Address(gwIPAddress));
-                }
+            // gw device found
+            if (targetDevice != null) {
+                // overwrite dst device info in cntx
+                IDeviceService.fcStore.put(cntx,
+                        IDeviceService.CONTEXT_DST_DEVICE, targetDevice);
+                log.debug("Interdomain forwarding: assigned gw {} found",
+                        IPv4.fromIPv4Address(targetIPAddress));
             } else {
-                // non-IP packets get here - not supported
-                log.debug("non-IP packet in prepInterDomainForwarding");
+                // if no known devices match the BgpRoute suggested gateway
+                // IP, this is an error in BgpRoute to be handled
+                log.debug(
+                        "Interdomain forwarding: assigned gw {} not known (error condition)",
+                        IPv4.fromIPv4Address(targetIPAddress));
             }
         } else {
-            log.debug("prep destination bgpRoute null");
+            // non-IP packets get here - not supported
+            log.debug("non-IP packet in prepInterDomainForwarding");
         }
 
         return cntx;
@@ -376,14 +390,14 @@ public class InterDomainForwarding extends Forwarding implements
                 byte[] targetProtocolAddress = arpRequest
                         .getTargetProtocolAddress();
 
-
                 boolean isExternal = false;
+                
                 for (int i=0; i<proxyGwIp.length; i++) {
                     if (IPv4.toIPv4Address(targetProtocolAddress) == IPv4.toIPv4Address(proxyGwIp[i])) {
                         isExternal = true;
                         log.debug("isEqual address {} : {}",
                                 IPv4.toIPv4Address(targetProtocolAddress),
-                                IPv4.toIPv4Address(proxyGwIp[i]));
+                                IPv4.toIPv4Address(proxyGwIp[i]));                                                
                         break;
                     }
                 }
