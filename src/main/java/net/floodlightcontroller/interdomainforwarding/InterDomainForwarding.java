@@ -50,6 +50,8 @@ public class InterDomainForwarding extends Forwarding implements
     protected static String[] bgpIncomingGwIp;
     protected static Integer[] localSubnet;
     protected static Integer[] localSubnetMaskBits;
+    
+    protected Map<Integer, byte[]> gwIPtoMac;
 
     @Override
     public void init(FloodlightModuleContext context)
@@ -333,6 +335,7 @@ public class InterDomainForwarding extends Forwarding implements
         
         Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
                 IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+        byte[] pktInDstMac = eth.getDestinationMACAddress();
         
         // get packet's destination IP address and find out matching subnet
         IPv4 ip_pkt = (IPv4) eth.getPayload();
@@ -410,9 +413,16 @@ public class InterDomainForwarding extends Forwarding implements
                     subnetWildcard = true;
                 }
                 
+                updateGwBinding();
+                
                 if (!rewriteNeeded) {
                     for (int i=0; i<bgpIncomingGwIp.length; i++) {
-                        if (ip_pkt_dstIpAddress == IPv4.toIPv4Address(bgpIncomingGwIp[i])) {
+                        byte [] bgpIncomingGwMac = gwIPtoMac.get(bgpIncomingGwIp[i]);
+                        log.info("ip {} has mac {}", bgpIncomingGwIp[i], bgpIncomingGwMac);
+                        
+                        if (bgpIncomingGwMac != null && pktInDstMac.equals(bgpIncomingGwMac) && 
+                                ip_pkt_dstIpAddress != IPv4.toIPv4Address(bgpIncomingGwIp[i])) {
+                            log.info("PAYLOAD ip {} has mac {}",  ip_pkt_dstIpAddress, pktInDstMac);
                                 rewriteNeeded = true;
                                 break;
                         }
@@ -445,13 +455,15 @@ public class InterDomainForwarding extends Forwarding implements
                         // set flow mod dst IP address and wildcard 
                         fm.getMatch().setDataLayerType(Ethernet.TYPE_IPv4);
                         fm.getMatch().setNetworkDestination(matched_ip);
+                     
                         int current_wildcard = fm.getMatch().getWildcards();
                         fm.getMatch().setWildcards((current_wildcard & ~OFMatch.OFPFW_NW_DST_ALL & ~OFMatch.OFPFW_DL_TYPE) 
                                 | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT) 
                                 | OFMatch.OFPFW_NW_SRC_ALL 
                                 | OFMatch.OFPFW_NW_PROTO);                    
                     }
-                }
+                } else
+                    log.info("no rewrite needed");
             } else {
                 // update match for output action
                 fm.getMatch()
@@ -493,4 +505,31 @@ public class InterDomainForwarding extends Forwarding implements
 
         return srcSwitchIncluded;
     }
+    
+    private void updateGwBinding() {
+        if (gwIPtoMac.size()==bgpIncomingGwIp.length)
+            return;
+
+        // retrieve all known devices
+        Collection<? extends IDevice> allDevices = deviceManager
+                .getAllDevices();
+
+        for (int i=0; i<bgpIncomingGwIp.length; i++) {
+            if (gwIPtoMac.containsKey(bgpIncomingGwIp[i]))
+                continue;
+
+            for (IDevice d : allDevices) {
+                for (int j = 0; j < d.getIPv4Addresses().length; i++) {        
+                    if (bgpIncomingGwIp[i].equals(d.getIPv4Addresses()[j])) {
+                        gwIPtoMac.put(IPv4.toIPv4Address(bgpIncomingGwIp[i]), MACAddress.valueOf(d.getMACAddress()).toBytes());
+                        break;
+                    }
+                }
+                if (gwIPtoMac.containsKey(bgpIncomingGwIp[i]))
+                    break;   
+            }            
+        }
+        
+    }
+
 }
