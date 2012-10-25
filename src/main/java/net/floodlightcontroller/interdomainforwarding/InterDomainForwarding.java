@@ -3,6 +3,7 @@ package net.floodlightcontroller.interdomainforwarding;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -45,12 +46,14 @@ public class InterDomainForwarding extends Forwarding implements
     protected static IBgpRouteService bgpRoute;
     // proxyArp MAC address - can replace with other values in future
     public final String GW_PROXY_ARP_MACADDRESS = "12:34:56:78:90:12";
+    protected MACAddress proxyArpAddress = MACAddress.valueOf(GW_PROXY_ARP_MACADDRESS);
 
-    protected static String[] proxyGwIp;
-    protected static String[] bgpIncomingGwIp;
-    protected static Integer[] localSubnet;
-    protected static Integer[] localSubnetMaskBits;
-    
+
+    protected static ArrayList<Integer> proxyGwIp = new ArrayList<Integer>();
+    protected static ArrayList<Integer> bgpIncomingGwIp = new ArrayList<Integer>();
+    protected static ArrayList<Integer> localSubnet = new ArrayList<Integer>();
+    protected static ArrayList<Integer> localSubnetMaskBits = new ArrayList<Integer>();
+
     protected Map<Integer, byte[]> gwIPtoMac;
 
     @Override
@@ -58,39 +61,39 @@ public class InterDomainForwarding extends Forwarding implements
             throws FloodlightModuleException {
 
         bgpRoute = context.getServiceImpl(IBgpRouteService.class);
+        gwIPtoMac = new HashMap<Integer, byte[]>();
 
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
 
         String proxyGwIpString = configOptions.get("proxyGateway");
         if (proxyGwIpString != null) {
-            proxyGwIp = proxyGwIpString.split("[/, ]+");
-            for (int i=0; i < proxyGwIp.length; i++) {
-                log.debug("add proxy gateway {}",
-                        proxyGwIp[i]);
+            String[] proxyGwIpRead = proxyGwIpString.split("[/, ]+");
+            for (int i = 0; i < proxyGwIpRead.length; i++) {
+                log.debug("add proxy gateway {}", proxyGwIpRead[i]);
+                proxyGwIp.add(IPv4.toIPv4Address(proxyGwIpRead[i]));
             }
         }
 
         String bgpIncomingGwIpString = configOptions.get("bgpIncomingGateway");
         if (bgpIncomingGwIpString != null) {
-            bgpIncomingGwIp = bgpIncomingGwIpString.split("[/, ]+");
-            for (int i=0; i < bgpIncomingGwIp.length; i++) {
-                log.debug("add bgpIncoming gateway {}",
-                        bgpIncomingGwIp[i]);
+            String[] bgpIncomingGwIpRead = bgpIncomingGwIpString.split("[/, ]+");
+            for (int i = 0; i < bgpIncomingGwIpRead.length; i++) {
+                log.debug("add bgpIncoming gateway {}", bgpIncomingGwIpRead[i]);
+                bgpIncomingGwIp.add(IPv4.toIPv4Address(bgpIncomingGwIpRead[i]));
             }
         }
 
         String subnet = configOptions.get("localSubnet");
         if (subnet != null) {
             String[] fields = subnet.split("[/, ]+");
-            int addresses = fields.length/2;
-            localSubnet = new Integer[addresses];
-            localSubnetMaskBits = new Integer[addresses];
-            for (int i=0; i<addresses; i++) {
-                localSubnet[i] = IPv4.toIPv4Address(fields[2*i]);
-                localSubnetMaskBits[i] = Integer.parseInt(fields[2*i+1]);
+            int addresses = fields.length / 2;
+            for (int i = 0; i < addresses; i++) {
+                localSubnet.add(IPv4.toIPv4Address(fields[2 * i]));
+                localSubnetMaskBits.add(Integer.parseInt(fields[2 * i + 1]));
                 log.debug("add local subnet {}/{}",
-                        IPv4.fromIPv4Address(localSubnet[i]), localSubnetMaskBits[i]);
+                        localSubnet.get(i),
+                        localSubnetMaskBits.get(i));
             }
         }
 
@@ -120,20 +123,20 @@ public class InterDomainForwarding extends Forwarding implements
                 // 1) proxyGwIp
                 // TODO: remove localSubnet from properties
 
-                byte[] targetProtocolAddress = arpRequest
-                        .getTargetProtocolAddress();
-                
+                int targetProtocolAddress = IPv4.toIPv4Address(arpRequest
+                        .getTargetProtocolAddress());
+                int senderProtocolAddress = IPv4.toIPv4Address(arpRequest
+                        .getSenderProtocolAddress());
+
                 boolean isOutgoing = false;
-                
-                for (int i=0; i<proxyGwIp.length; i++) {
-                    if (IPv4.toIPv4Address(targetProtocolAddress) == IPv4.toIPv4Address(proxyGwIp[i])) {
+
+                if (proxyGwIp.contains(targetProtocolAddress) && 
+                        !bgpIncomingGwIp.contains(senderProtocolAddress)) {
                         isOutgoing = true;
-                        log.debug("ARP target address {} : gw {}",
-                                IPv4.toIPv4Address(targetProtocolAddress),
-                                IPv4.toIPv4Address(proxyGwIp[i]));          
-                        break;
-                    }
+                        log.debug("ARP target address {} is a Gw",
+                                targetProtocolAddress);
                 }
+                
                 if (isOutgoing) {
                     doProxyArp(sw, pi, cntx);
 
@@ -145,8 +148,6 @@ public class InterDomainForwarding extends Forwarding implements
             // For now we treat multicast as broadcast
             doFlood(sw, pi, cntx);
         } else {
-            MACAddress proxyArpAddress = MACAddress
-                    .valueOf(GW_PROXY_ARP_MACADDRESS);
             MACAddress dstMac = MACAddress.valueOf(eth
                     .getDestinationMACAddress());
 
@@ -209,7 +210,7 @@ public class InterDomainForwarding extends Forwarding implements
         return;
     }
 
-    protected FloodlightContext prepInterDomainForwarding(FloodlightContext cntx){
+    protected FloodlightContext prepInterDomainForwarding(FloodlightContext cntx) {
 
         log.debug("InterDomainForwarding applied - gateway-bound traffic");
 
@@ -223,36 +224,22 @@ public class InterDomainForwarding extends Forwarding implements
             // Here query BgpRoute for the right gateway IP
             log.debug("prep destination {}",
                     IPv4.fromIPv4Address(ipPkt.getDestinationAddress()));
-                                
-            boolean isOutgoing = false;
-            for(int i=0; i<localSubnet.length;i++) {
-                int senderIPAddress = ipPkt.getSourceAddress();
-                if (senderIPAddress >> (32-localSubnetMaskBits[i]) == 
-                        localSubnet[i].intValue() >>(32-localSubnetMaskBits[i])) {
-                    isOutgoing = true;                       
-                    break;
-                }
-            }
 
             byte[] targetIPAddressByte = null;
-            
-            if (isOutgoing) {
-                if(bgpRoute != null) 
-                    targetIPAddressByte = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress())).getNextHop().getAddress();
-                else 
-                    log.debug("prep destination bgpRoute null");
-            }
+            if (bgpRoute != null)
+                targetIPAddressByte = bgpRoute.lookupRib(
+                        IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress()))
+                        .getNextHop().getAddress();
             else
-                targetIPAddressByte = IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress());
-                    
+                log.debug("prep destination bgpRoute null");
+
             log.debug("prep nexthop {}", targetIPAddressByte);
 
-//                if (targetIPAddressByte == null) return cntx; // no next hop info - give up
-                
+             if (targetIPAddressByte == null) return cntx; // no next hop info - give up
+
             Integer targetIPAddress = IPv4.toIPv4Address(targetIPAddressByte);
 
-            // Below searches for gateway device handler using
-            // IDeviceService
+            // Below searches for gateway device using IDeviceService
 
             // retrieve all known devices
             Collection<? extends IDevice> allDevices = deviceManager
@@ -321,28 +308,112 @@ public class InterDomainForwarding extends Forwarding implements
      *            flow mod. command to use, e.g. OFFlowMod.OFPFC_ADD,
      *            OFFlowMod.OFPFC_MODIFY etc.
      */
-    
+
     @Override
     public boolean pushRoute(Route route, OFMatch match,
-            Integer wildcard_hints, OFPacketIn pi,
-            long pinSwitch, long cookie, FloodlightContext cntx,
-            boolean reqeustFlowRemovedNotifn, boolean doFlush,
-            short flowModCommand) {
+            Integer wildcard_hints, OFPacketIn pi, long pinSwitch, long cookie,
+            FloodlightContext cntx, boolean reqeustFlowRemovedNotifn,
+            boolean doFlush, short flowModCommand) {
 
         log.debug("interdomain push route");
 
         boolean srcSwitchIncluded = false;
-        
+
         Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
                 IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
-        byte[] pktInDstMac = eth.getDestinationMACAddress();
-        
+
         // get packet's destination IP address and find out matching subnet
-        IPv4 ip_pkt = (IPv4) eth.getPayload();
-        int ip_pkt_dstIpAddress = ip_pkt.getDestinationAddress();
+        IPacket pkt = eth.getPayload();
+
+        byte[] pktDstMac = eth.getDestinationMACAddress();
+        int pktDstIp = 0;
+        
+        boolean matchIP = false;
+        boolean matchEthertype = false;
+        boolean rewriteNeeded = false;
+        boolean subnetWildcard = false;
+
+        if (pkt instanceof IPv4) {
+            IPv4 ip_pkt = (IPv4) eth.getPayload();
+            pktDstIp = ip_pkt.getDestinationAddress();
+            matchIP = true;
+            
+            if (pktDstMac.equals(proxyArpAddress)) {
+                rewriteNeeded = true;
+                subnetWildcard = true;
+            }
+
+            updateGwBinding();
+
+            if (!rewriteNeeded) {
+                for (int i = 0; i < bgpIncomingGwIp.size(); i++) {
+                    byte[] bgpIncomingGwMac = gwIPtoMac
+                            .get(bgpIncomingGwIp.get(i));
+                    log.info("ip {} has mac {}", IPv4.fromIPv4Address(bgpIncomingGwIp.get(i)),
+                            bgpIncomingGwMac);
+
+                    // Going to bgp incoming gw
+                    if (bgpIncomingGwMac != null
+                            && pktDstMac.equals(bgpIncomingGwMac)) {
+                        log.info("PAYLOAD ip {} has mac {}", pktDstIp, pktDstMac);
+                        
+                        // but the real destination is not gw
+                        if (pktDstIp != bgpIncomingGwIp.get(i)) {
+                            rewriteNeeded = true;
+
+                            
+                         // look for device with dst host IP address
+                            IDevice targetDevice = null;
+                            
+                         // retrieve all known devices
+                            Collection<? extends IDevice> allDevices = deviceManager
+                                    .getAllDevices();
+                            
+                            for (IDevice d : allDevices) {
+                                for (int j = 0; j < d.getIPv4Addresses().length; j++) {
+                                    if (pktDstIp == d.getIPv4Addresses()[i]) {
+                                        targetDevice = d;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // device found
+                            if (targetDevice != null) {
+                                // overwrite dst device info in cntx
+                                IDeviceService.fcStore.put(cntx,
+                                        IDeviceService.CONTEXT_DST_DEVICE, targetDevice);
+                                log.debug("Interdomain forwarding: assigned gw {} found",
+                                        IPv4.fromIPv4Address(pktDstIp));
+                            } else {
+                                // if no known devices match the BgpRoute suggested gateway
+                                // IP, this is an error in BgpRoute to be handled
+                                log.debug(
+                                        "Interdomain forwarding: dest host {} not in device list (error condition)",
+                                        IPv4.fromIPv4Address(pktDstIp));
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            
+        } else if (pkt instanceof ARP) {
+            ARP arp_pkt = (ARP) eth.getPayload();
+            pktDstIp = IPv4.toIPv4Address(arp_pkt.getTargetProtocolAddress());
+            
+            log.info("sender {} target {}", IPv4.fromIPv4Address(IPv4
+                    .toIPv4Address(arp_pkt.getSenderProtocolAddress())), IPv4
+                    .fromIPv4Address(IPv4.toIPv4Address(arp_pkt
+                            .getTargetProtocolAddress())));
+            matchEthertype = true;
+        }
 
         OFFlowMod fm = (OFFlowMod) floodlightProvider.getOFMessageFactory()
                 .getMessage(OFType.FLOW_MOD);
+
+        // add initialized OUTPUT action
         OFActionOutput action = new OFActionOutput();
         action.setMaxLength((short) 0xffff);
         List<OFAction> actions = new ArrayList<OFAction>();
@@ -372,107 +443,94 @@ public class InterDomainForwarding extends Forwarding implements
                 return srcSwitchIncluded;
             }
 
-            // set the match.
+            // set the default match.
             fm.setMatch(wildcard(match, sw, wildcard_hints));
-
-            // set buffer id if it is the source switch
-            if (1 == indx) {
-                // Set the flag to request flow-mod removal notifications only
-                // for the
-                // source switch. The removal message is used to maintain the
-                // flow
-                // cache. Don't set the flag for ARP messages - TODO generalize
-                // check
-                if ((reqeustFlowRemovedNotifn)
-                        && (match.getDataLayerType() != Ethernet.TYPE_ARP)) {
-                    fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
-                    match.setWildcards(fm.getMatch().getWildcards());
-                }
-            }
 
             short outPort = switchPortList.get(indx).getPortId();
             short inPort = switchPortList.get(indx - 1).getPortId();
+            
             // set input and output ports on the switch
             fm.getMatch().setInputPort(inPort);
             ((OFActionOutput) fm.getActions().get(0)).setPort(outPort);
+            
+
 
             // InterDomainForwarding specific handling starts here
             // retrieve cntx to set rewrite+forward action for 1st switch and
             // forward action for all other switches
             IDevice dstDevice = IDeviceService.fcStore.get(cntx,
                     IDeviceService.CONTEXT_DST_DEVICE);
-            List<OFAction> newActions = fm.getActions();
 
             if (indx == 1) {
-                boolean rewriteNeeded = false;
-                boolean subnetWildcard = false;
-                
-                if (MACAddress.valueOf(fm.getMatch().getDataLayerDestination())
-                        .equals(MACAddress.valueOf(GW_PROXY_ARP_MACADDRESS))) {
-                    rewriteNeeded = true;
-                    subnetWildcard = true;
+
+                if ((reqeustFlowRemovedNotifn)
+                        && (match.getDataLayerType() != Ethernet.TYPE_ARP)) {
+                    fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+//                    match.setWildcards(fm.getMatch().getWildcards());
                 }
-                
-                updateGwBinding();
-                
-                if (!rewriteNeeded) {
-                    for (int i=0; i<bgpIncomingGwIp.length; i++) {
-                        byte [] bgpIncomingGwMac = gwIPtoMac.get(bgpIncomingGwIp[i]);
-                        log.info("ip {} has mac {}", bgpIncomingGwIp[i], bgpIncomingGwMac);
-                        
-                        if (bgpIncomingGwMac != null && pktInDstMac.equals(bgpIncomingGwMac) && 
-                                ip_pkt_dstIpAddress != IPv4.toIPv4Address(bgpIncomingGwIp[i])) {
-                            log.info("PAYLOAD ip {} has mac {}",  ip_pkt_dstIpAddress, pktInDstMac);
-                                rewriteNeeded = true;
-                                break;
+
+                List<OFAction> newActions = fm.getActions();
+
+                if (matchEthertype) {
+                    log.info("match Ethertype");
+
+                    // if ARP reply, match dl-type==ARP
+                    fm.getMatch().setDataLayerType(Ethernet.TYPE_ARP);
+
+                    fm.getMatch().setWildcards(
+                            fm.getMatch().getWildcards() & ~OFMatch.OFPFW_DL_TYPE 
+                            | OFMatch.OFPFW_NW_SRC_ALL
+                            | OFMatch.OFPFW_NW_DST_ALL
+                            | OFMatch.OFPFW_NW_PROTO);
+                } else if (matchIP) {
+                    // add rewrite action to current output action
+                    if (rewriteNeeded) {
+                        // create rewrite action with chosen gw MAC address
+                        OFAction rewriteAction = new OFActionDataLayerDestination(
+                                MACAddress.valueOf(dstDevice.getMACAddress())
+                                .toBytes());
+
+                        newActions.add(0, rewriteAction);
+                        fm.setActions(newActions);
+                        fm.setLengthU(fm.getLengthU()
+                                    + rewriteAction.getLengthU());
                         }
-                    }
-                }
-                
-                if (rewriteNeeded) {
-                    // create rewrite action with chosen gw MAC address
-                    OFAction rewriteAction = new OFActionDataLayerDestination(
-                            MACAddress.valueOf(dstDevice.getMACAddress())
-                            .toBytes());
+                        
+                        int wildcard_bits = 0;
+                        int matched_ip = 0;
 
-                    // add action to current output action
-                    newActions.add(0, rewriteAction);
-                    fm.setActions(newActions);
-                    fm.setLengthU(fm.getLengthU() + rewriteAction.getLengthU());
-                    
-                    int wildcard_bits = 0;
-                    int matched_ip = 0;
+                        if (subnetWildcard) {
+                            Rib foundRib = bgpRoute.lookupRib(IPv4
+                                    .toIPv4AddressBytes(pktDstIp));
+                            wildcard_bits = 32 - foundRib.getMasklen();
+                        }
+                        matched_ip = (pktDstIp >> wildcard_bits) << wildcard_bits;
 
-                    if (subnetWildcard) {
-                        Rib foundRib = bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ip_pkt_dstIpAddress));
-                        wildcard_bits = 32-foundRib.getMasklen();
-                    }
-                    matched_ip = (ip_pkt_dstIpAddress >> wildcard_bits) << wildcard_bits;
-                    
-                    if (matched_ip==0)
-                        log.debug("no matching local subnet found - cannot set correct ip_prefix wildcard");
+                        if (matched_ip == 0)
+                            log.debug("no matching local subnet found - cannot set correct ip_prefix wildcard");
+                        else {
+                            // set flow mod dst IP address and wildcard
+                            fm.getMatch().setDataLayerType(Ethernet.TYPE_IPv4);
+                            fm.getMatch().setNetworkDestination(matched_ip);
+
+                            fm.getMatch().setWildcards(
+                                        (fm.getMatch().getWildcards()
+                                                & ~OFMatch.OFPFW_NW_DST_ALL & ~OFMatch.OFPFW_DL_TYPE)
+                                                | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT)
+                                                | OFMatch.OFPFW_NW_SRC_ALL
+                                                | OFMatch.OFPFW_NW_PROTO);
+                        }
+                    }                    
                     else {
-                        // set flow mod dst IP address and wildcard 
-                        fm.getMatch().setDataLayerType(Ethernet.TYPE_IPv4);
-                        fm.getMatch().setNetworkDestination(matched_ip);
-                     
-                        int current_wildcard = fm.getMatch().getWildcards();
-                        fm.getMatch().setWildcards((current_wildcard & ~OFMatch.OFPFW_NW_DST_ALL & ~OFMatch.OFPFW_DL_TYPE) 
-                                | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT) 
-                                | OFMatch.OFPFW_NW_SRC_ALL 
-                                | OFMatch.OFPFW_NW_PROTO);                    
-                    }
-                } else
-                    log.info("no rewrite needed");
-            } else {
-                // update match for output action
-                fm.getMatch()
+                        // update match for output action
+                        fm.getMatch()
                         .setDataLayerDestination(
                                 MACAddress.valueOf(dstDevice.getMACAddress())
-                                        .toBytes());
-            }
+                                .toBytes());
+                        }
+                    }
+ 
             // InterDomainForwarding specific handling concludes here
-
             try {
                 counterStore.updatePktOutFMCounterStore(sw, fm);
                 if (log.isTraceEnabled()) {
@@ -505,31 +563,33 @@ public class InterDomainForwarding extends Forwarding implements
 
         return srcSwitchIncluded;
     }
-    
+
     private void updateGwBinding() {
-        if (gwIPtoMac.size()==bgpIncomingGwIp.length)
+        if (gwIPtoMac.size() == bgpIncomingGwIp.size())
             return;
 
         // retrieve all known devices
         Collection<? extends IDevice> allDevices = deviceManager
                 .getAllDevices();
 
-        for (int i=0; i<bgpIncomingGwIp.length; i++) {
-            if (gwIPtoMac.containsKey(bgpIncomingGwIp[i]))
+        for (int i = 0; i < bgpIncomingGwIp.size(); i++) {
+            if (gwIPtoMac.containsKey(bgpIncomingGwIp.get(i)))
                 continue;
 
             for (IDevice d : allDevices) {
-                for (int j = 0; j < d.getIPv4Addresses().length; i++) {        
-                    if (bgpIncomingGwIp[i].equals(d.getIPv4Addresses()[j])) {
-                        gwIPtoMac.put(IPv4.toIPv4Address(bgpIncomingGwIp[i]), MACAddress.valueOf(d.getMACAddress()).toBytes());
+                for (int j = 0; j < d.getIPv4Addresses().length; j++) {
+                    if (bgpIncomingGwIp.get(i).equals(d.getIPv4Addresses()[j])) {
+                        gwIPtoMac.put(bgpIncomingGwIp.get(i),
+                                MACAddress.valueOf(d.getMACAddress())
+                                .toBytes());
                         break;
                     }
                 }
-                if (gwIPtoMac.containsKey(bgpIncomingGwIp[i]))
-                    break;   
-            }            
+                if (gwIPtoMac.containsKey(bgpIncomingGwIp.get(i)))
+                    break;
+            }
         }
-        
+
     }
 
 }
