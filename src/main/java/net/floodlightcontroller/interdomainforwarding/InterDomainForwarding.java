@@ -338,7 +338,7 @@ public class InterDomainForwarding extends Forwarding implements
             pktDstIp = ip_pkt.getDestinationAddress();
             matchIP = true;
             
-            if (pktDstMac.equals(proxyArpAddress)) {
+            if (pktDstMac.equals(proxyArpAddress.toBytes())) {
                 rewriteNeeded = true;
                 subnetWildcard = true;
             }
