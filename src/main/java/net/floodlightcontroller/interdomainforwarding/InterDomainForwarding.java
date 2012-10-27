@@ -92,7 +92,7 @@ public class InterDomainForwarding extends Forwarding implements
                 localSubnet.add(IPv4.toIPv4Address(fields[2 * i]));
                 localSubnetMaskBits.add(Integer.parseInt(fields[2 * i + 1]));
                 log.debug("add local subnet {}/{}",
-                        localSubnet.get(i),
+                        IPv4.fromIPv4Address(localSubnet.get(i)),
                         localSubnetMaskBits.get(i));
             }
         }
@@ -134,7 +134,7 @@ public class InterDomainForwarding extends Forwarding implements
                         !bgpIncomingGwIp.contains(senderProtocolAddress)) {
                         isOutgoing = true;
                         log.debug("ARP target address {} is a Gw",
-                                targetProtocolAddress);
+                                IPv4.fromIPv4Address(targetProtocolAddress));
                 }
                 
                 if (isOutgoing) {
@@ -233,7 +233,7 @@ public class InterDomainForwarding extends Forwarding implements
             else
                 log.debug("prep destination bgpRoute null");
 
-            log.debug("prep nexthop {}", targetIPAddressByte);
+            log.debug("prep nexthop {}", IPv4.fromIPv4Address(IPv4.toIPv4Address(targetIPAddressByte)));
 
              if (targetIPAddressByte == null) return cntx; // no next hop info - give up
 
