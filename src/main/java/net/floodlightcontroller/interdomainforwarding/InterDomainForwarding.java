@@ -338,7 +338,10 @@ public class InterDomainForwarding extends Forwarding implements
             pktDstIp = ip_pkt.getDestinationAddress();
             matchIP = true;
             
+            log.debug("before check subnetWildcard dst mac {} proxyArp {}", MACAddress.valueOf(pktDstMac), proxyArpAddress);
+            
             if (pktDstMac.equals(proxyArpAddress.toBytes())) {
+                log.debug("rewrite and subnetWildcard needed");
                 rewriteNeeded = true;
                 subnetWildcard = true;
             }
@@ -494,41 +497,41 @@ public class InterDomainForwarding extends Forwarding implements
                         fm.setActions(newActions);
                         fm.setLengthU(fm.getLengthU()
                                     + rewriteAction.getLengthU());
-                        }
-                        
-                        int wildcard_bits = 0;
-                        int matched_ip = 0;
-
-                        if (subnetWildcard) {
-                            Rib foundRib = bgpRoute.lookupRib(IPv4
-                                    .toIPv4AddressBytes(pktDstIp));
-                            wildcard_bits = 32 - foundRib.getMasklen();
-                        }
-                        matched_ip = (pktDstIp >> wildcard_bits) << wildcard_bits;
-
-                        if (matched_ip == 0)
-                            log.debug("no matching local subnet found - cannot set correct ip_prefix wildcard");
-                        else {
-                            // set flow mod dst IP address and wildcard
-                            fm.getMatch().setDataLayerType(Ethernet.TYPE_IPv4);
-                            fm.getMatch().setNetworkDestination(matched_ip);
-
-                            fm.getMatch().setWildcards(
-                                        (fm.getMatch().getWildcards()
-                                                & ~OFMatch.OFPFW_NW_DST_ALL & ~OFMatch.OFPFW_DL_TYPE)
-                                                | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT)
-                                                | OFMatch.OFPFW_NW_SRC_ALL
-                                                | OFMatch.OFPFW_NW_PROTO);
-                        }
-                    }                    
-                    else {
-                        // update match for output action
-                        fm.getMatch()
-                        .setDataLayerDestination(
-                                MACAddress.valueOf(dstDevice.getMACAddress())
-                                .toBytes());
-                        }
                     }
+                        
+                    int wildcard_bits = 0;
+                    int matched_ip = 0;
+
+                    if (subnetWildcard) {
+                        Rib foundRib = bgpRoute.lookupRib(IPv4
+                                .toIPv4AddressBytes(pktDstIp));
+                        wildcard_bits = 32 - foundRib.getMasklen();
+                    }
+                    
+                    matched_ip = (pktDstIp >> wildcard_bits) << wildcard_bits;
+
+                    if (matched_ip == 0)
+                        log.debug("no matching local subnet found - cannot set correct ip_prefix wildcard");
+                    else {
+                        // set flow mod dst IP address and wildcard
+                        fm.getMatch().setDataLayerType(Ethernet.TYPE_IPv4);
+                        fm.getMatch().setNetworkDestination(matched_ip);
+
+                        fm.getMatch().setWildcards(
+                                (fm.getMatch().getWildcards()
+                                        & ~OFMatch.OFPFW_NW_DST_ALL & ~OFMatch.OFPFW_DL_TYPE)
+                                        | (wildcard_bits << OFMatch.OFPFW_NW_DST_SHIFT)
+                                        | OFMatch.OFPFW_NW_SRC_ALL
+                                        | OFMatch.OFPFW_NW_PROTO);
+                    }
+                } 
+            } else {
+                log.debug("matching neighther ARP nor IP");
+                // update match for output action
+                fm.getMatch().setDataLayerDestination(
+                        MACAddress.valueOf(dstDevice.getMACAddress())
+                        .toBytes());
+            }
  
             // InterDomainForwarding specific handling concludes here
             try {
