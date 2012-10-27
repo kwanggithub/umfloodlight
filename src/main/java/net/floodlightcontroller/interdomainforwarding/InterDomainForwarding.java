@@ -153,7 +153,7 @@ public class InterDomainForwarding extends Forwarding implements
 
             log.debug("dst is " + dstMac + " gw is " + proxyArpAddress);
 
-            if (proxyArpAddress.equals(dstMac)) {
+            if (proxyArpAddress.toLong() == dstMac.toLong()) {
                 cntx = prepInterDomainForwarding(cntx);
             }
 
@@ -357,7 +357,7 @@ public class InterDomainForwarding extends Forwarding implements
 
                     // Going to bgp incoming gw
                     if (bgpIncomingGwMac != null
-                            && pktDstMac.equals(bgpIncomingGwMac)) {
+                            && MACAddress.valueOf(pktDstMac).toLong() == MACAddress.valueOf(bgpIncomingGwMac).toLong()) {
                         log.info("PAYLOAD ip {} has mac {}", pktDstIp, pktDstMac);
                         
                         // but the real destination is not gw
@@ -432,6 +432,14 @@ public class InterDomainForwarding extends Forwarding implements
                         OFFlowMod.MINIMUM_LENGTH
                                 + OFActionOutput.MINIMUM_LENGTH);
 
+        if (rewriteNeeded) {
+            IDevice srcDevice = IDeviceService.fcStore.get(cntx,
+                    IDeviceService.CONTEXT_SRC_DEVICE);
+            IDevice targetDevice = IDeviceService.fcStore.get(cntx,
+                    IDeviceService.CONTEXT_DST_DEVICE);
+            route = routingEngine.getRoute(srcDevice.getAttachmentPoints()[0].getSwitchDPID(), targetDevice.getAttachmentPoints()[0].getSwitchDPID());
+        }
+        
         List<NodePortTuple> switchPortList = route.getPath();
 
         for (int indx = switchPortList.size() - 1; indx > 0; indx -= 2) {
