@@ -11,6 +11,7 @@ import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFPacketIn;
 import org.openflow.protocol.OFPacketOut;
+import org.openflow.protocol.OFPort;
 import org.openflow.protocol.OFType;
 import org.openflow.protocol.action.OFAction;
 import org.openflow.protocol.action.OFActionDataLayerDestination;
@@ -172,7 +173,7 @@ public class InterDomainForwarding extends Forwarding implements
                 
                 // get destination gateway via bgpRoute
                 cntx = prepInterDomainForwarding(cntx);
-
+                
                 // new dest (gw) decided, will rewrite dest mac and do subnet based match
                 rewriteNeeded = true;
                 subnetWildcard = true;
@@ -215,7 +216,7 @@ public class InterDomainForwarding extends Forwarding implements
                                 
                                 for (IDevice d : allDevices) {
                                     for (int j = 0; j < d.getIPv4Addresses().length; j++) {
-                                        if (pktDstIp == d.getIPv4Addresses()[i]) {
+                                        if (pktDstIp == d.getIPv4Addresses()[j]) {
                                             targetDevice = d;
                                             break;
                                         }
@@ -568,9 +569,7 @@ public class InterDomainForwarding extends Forwarding implements
 
                 // Push the packet out the source switch
                 if (sw.getId() == pinSwitch) {
-                    // TODO: Instead of doing a packetOut here we could also
-                    // send a flowMod with bufferId set....
-                    pushPacket(sw, match, pi, outPort, cntx);
+                    pushPacket(sw, fm.getMatch(), pi, OFPort.OFPP_TABLE.getValue(), cntx);
                     srcSwitchIncluded = true;
                 }
             } catch (IOException e) {
