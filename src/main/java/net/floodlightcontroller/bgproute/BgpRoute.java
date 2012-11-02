@@ -10,16 +10,24 @@ import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.core.IFloodlightProviderService;
+
+import net.floodlightcontroller.linkdiscovery.ILinkDiscovery.LDUpdate;
 import net.floodlightcontroller.restserver.IRestApiService;
+import net.floodlightcontroller.topology.ITopologyListener;
+import net.floodlightcontroller.topology.ITopologyService;
+import net.floodlightcontroller.restclient.RestClient;
+
+import net.floodlightcontroller.linkdiscovery.ILinkDiscovery;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class BgpRoute implements IFloodlightModule, IBgpRouteService {
+public class BgpRoute implements IFloodlightModule, IBgpRouteService, ITopologyListener {
 	
 	protected static Logger log = LoggerFactory.getLogger(BgpRoute.class);
 
 	protected IFloodlightProviderService floodlightProvider;
+	protected ITopologyService topology;
 	
 	protected static Ptree ptree;
 	
@@ -43,6 +51,7 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 	public Collection<Class<? extends IFloodlightService>> getModuleDependencies() {
 		Collection<Class<? extends IFloodlightService>> l = new ArrayList<Class<? extends IFloodlightService>>();
 		l.add(IFloodlightProviderService.class);
+		l.add(ITopologyService.class);
 		l.add(IBgpRouteService.class);
 		return l;
 	}
@@ -56,6 +65,7 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 		// Register floodlight provider and REST handler.
 		floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
 		restApi = context.getServiceImpl(IRestApiService.class);
+		topology = context.getServiceImpl(ITopologyService.class);
 		
 		// Test.
 		//test();
@@ -145,5 +155,27 @@ public class BgpRoute implements IFloodlightModule, IBgpRouteService {
 	@Override
 	public void startUp(FloodlightModuleContext context) {
 		restApi.addRestletRoutable(new BgpRouteWebRoutable());
+		topology.addListener((ITopologyListener) this);
+	}
+
+	@Override
+	public void topologyChanged() {
+		boolean change = false;
+		String changelog = "";
+		
+		for (LDUpdate ldu : topology.getLastLinkUpdates()) {
+			if (ldu.getOperation().equals(ILinkDiscovery.UpdateOperation.PORT_DOWN)) {
+				change = true;
+				changelog = changelog + " down ";
+			} else if (ldu.getOperation().equals(ILinkDiscovery.UpdateOperation.PORT_UP)) {
+				change = true;
+				changelog = changelog + " up ";
+			}
+		}
+		log.info ("received topo change" + changelog);
+
+		if (change) {
+			RestClient.get ("http://localhost:5000/topo_change");
+		}
 	}
 }

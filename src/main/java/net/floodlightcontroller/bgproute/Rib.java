@@ -37,4 +37,9 @@ public class Rib {
 	public int getMasklen(){
 	    return masklen;
 	}
+	
+	public boolean equals(Rib r) {
+				
+		return this.routerId == r.routerId && this.nextHop == r.nextHop && this.masklen == r.masklen;
+	}
 }

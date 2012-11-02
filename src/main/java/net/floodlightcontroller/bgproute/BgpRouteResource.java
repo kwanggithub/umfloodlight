@@ -4,9 +4,15 @@ import org.restlet.resource.Get;
 import org.restlet.resource.Post;
 import org.restlet.resource.Delete;
 import org.restlet.resource.ServerResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import net.floodlightcontroller.restclient.RestClient;
 
 public class BgpRouteResource extends ServerResource {
     
+	protected static Logger log = LoggerFactory
+            .getLogger(BgpRouteResource.class);
+	
 	private String addrToString(byte [] addr) {
 	    String str = "";
 		
@@ -71,20 +77,28 @@ public class BgpRouteResource extends ServerResource {
 		String prefix = (String) getRequestAttributes().get("prefix");
 		String mask = (String) getRequestAttributes().get("mask");
 		String nexthop = (String) getRequestAttributes().get("nexthop");
-				
-		Prefix p = new Prefix(prefix, Integer.valueOf(mask));
+		String capability = (String) getRequestAttributes().get("capability");
+		String reply = null;
 		
-		PtreeNode node = ptree.acquire(p.getAddress(), p.masklen);
-		
-		Rib rib = new Rib(router_id, nexthop, p.masklen);
+		if (capability == null) {
+			// this is a prefix add
+			Prefix p = new Prefix(prefix, Integer.valueOf(mask));
+			PtreeNode node = ptree.acquire(p.getAddress(), p.masklen);
+			Rib rib = new Rib(router_id, nexthop, p.masklen);
 
-		if (node.rib != null) {
-			node.rib = null;
-			ptree.delReference(node);
+			if (node.rib != null) {
+				node.rib = null;
+				ptree.delReference(node);
+			}
+			node.rib = rib;
+			
+			reply = "[POST: " + prefix + "/" + mask + ":" + nexthop + "]";
+			log.info(reply);
+			
+			RestClient.get("http://localhost:5000/bgp_update");
 		}
-		node.rib = rib;
-
-		return "[POST:" + router_id + ":" + prefix + ":" + mask + ":" + nexthop + "]\n";
+		
+		return reply + "\n";
 	}
 	
 	@Delete
@@ -98,14 +112,28 @@ public class BgpRouteResource extends ServerResource {
 		String prefix = (String) getRequestAttributes().get("prefix");
 		String mask = (String) getRequestAttributes().get("mask");
 		String nextHop = (String) getRequestAttributes().get("nexthop");
+		String capability = (String) getRequestAttributes().get("capability");
+		String reply = null;
 		
-		Prefix p = new Prefix(prefix, Integer.valueOf(mask));
-		PtreeNode node = ptree.lookup(p.getAddress(), p.masklen);
-		if (node != null) {
-			node.rib = null;
-			ptree.delReference(node);
+		if (capability == null) {
+			// this is a prefix delete
+			Prefix p = new Prefix(prefix, Integer.valueOf(mask));
+			PtreeNode node = ptree.lookup(p.getAddress(), p.masklen);
+			Rib r = new Rib(routerId, nextHop, p.masklen);
+
+			if (node != null && node.rib != null) {
+				if (r.equals(node.rib)) {
+					node.rib = null;
+					ptree.delReference(node);
+				}
+			}
+			
+			reply = "[DELE: " + prefix + "/" + mask + ":" + nextHop + "]";
+			log.info(reply);
+			
+			RestClient.get("http://localhost:5000/bgp_update");
 		}
-		
-		return "[DELETE:" + routerId + ":" + prefix + ":" + mask + ":" + nextHop + "]\n";
+
+		return reply + "\n";
 	}
 }
