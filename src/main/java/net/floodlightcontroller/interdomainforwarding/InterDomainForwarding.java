@@ -316,7 +316,8 @@ public class InterDomainForwarding extends Forwarding implements
             byte[] targetIPAddressByte = null;
             Integer targetIPAddress;
             
-            if (bgpRoute != null)
+            if (bgpRoute != null && bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress())) != null && bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress()))
+                    .getNextHop() != null)
                 // Here query BgpRoute for the right gateway IP
                 targetIPAddressByte = 
                     bgpRoute.lookupRib(IPv4.toIPv4AddressBytes(ipPkt.getDestinationAddress()))
@@ -324,9 +325,10 @@ public class InterDomainForwarding extends Forwarding implements
             else
                 log.debug("prep destination bgpRoute null");
 
-            log.debug("prep nexthop {}", IPv4.fromIPv4Address(IPv4.toIPv4Address(targetIPAddressByte)));
-
-            if (targetIPAddressByte == null) return cntx; // no next hop info - give up
+            if (targetIPAddressByte != null)
+                log.debug("prep nexthop {}", IPv4.fromIPv4Address(IPv4.toIPv4Address(targetIPAddressByte)));
+            else
+                return cntx; // no next hop info - give up
 
             targetIPAddress = IPv4.toIPv4Address(targetIPAddressByte);
 
