@@ -1,0 +1,60 @@
+:
+==== BGP ====
+172.16.10.0/24 192.168.20.1
+172.16.20.0/25 192.168.20.1
+172.16.30.0/24 0.0.0.0
+172.16.40.0/24 192.168.40.1
+172.16.50.0/24 192.168.40.1
+192.168.10.0/24 192.168.20.1
+192.168.20.0/24 0.0.0.0
+192.168.30.0/24 192.168.20.1
+192.168.40.0/24 0.0.0.0
+==== Floodlight====
+172.16.10.0/24 192.168.20.1
+172.16.20.0/25 192.168.40.1
+172.16.30.0/24 0.0.0.0
+172.16.40.0/24 192.168.40.1
+172.16.50.0/24 192.168.40.1
+192.168.10.0/24 192.168.20.1
+192.168.20.0/24 0.0.0.0
+192.168.30.0/24 192.168.20.1
+192.168.40.0/24 0.0.0.0
+== diff ==
+172.16.20.0/25 bgp: 192.168.20.1 fl: 192.168.40.1
+
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-2] [POST: 192.168.20.0/24:0.0.0.0]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-3] [POST: 172.16.30.0/24:0.0.0.0]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-0] [POST: 192.168.40.0/24:0.0.0.0]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-2] [POST: 192.168.30.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-2] [POST: 192.168.30.0/24:192.168.20.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-0] [DELE: 192.168.30.0/24:192.168.40.1]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-3] [POST: 192.168.10.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-0] [POST: 192.168.10.0/24:192.168.20.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-2] [DELE: 192.168.10.0/24:192.168.40.1]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-0] [POST: 172.16.40.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-2] [POST: 172.16.40.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-3] [DELE: 172.16.40.0/24:192.168.40.1]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-1] [POST: 172.16.50.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-0] [POST: 172.16.50.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-1] [DELE: 172.16.50.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-2] [DELE: 172.16.50.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-1] [POST: 172.16.50.0/24:192.168.40.1]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-1] [DELE: 172.16.10.0/24:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-3] [POST: 172.16.10.0/24:192.168.20.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-4] [POST: 172.16.10.0/24:192.168.40.1]
+
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-3] [DELE: 172.16.20.0/25:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-1] [POST: 172.16.20.0/25:192.168.20.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-4] [POST: 172.16.20.0/25:192.168.40.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-4] [DELE: 172.16.20.0/25:192.168.20.1]
+INFO [net.floodlightcontroller.bgproute.BgpRouteResource:Dispatcher-3] [POST: 172.16.20.0/25:192.168.20.1]
+
+
